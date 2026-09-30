@@ -22,7 +22,7 @@ uuid = { version = "1", features = ["v4"] }
 hmac = "0.12"
 sha2 = "0.10"
 hex = "0.4"
-rand = "0.8"
+rand = "0.10"
 
 # The `openintents` binary. Optional so library users don't pull it in.
 clap = { version = "4", features = ["derive", "env"], optional = true }
