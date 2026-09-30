@@ -1,8 +1,8 @@
 # @tinyhumansai/openintents
 
-TypeScript SDK and CLI for [OpenIntents](https://openintents.io), the agentic
-API to buy anything. Send an intent in plain language; the API does the
-agentic work in a real browser, gets it paid, and resolves to a receipt.
+TypeScript SDK and CLI for [OpenIntents](https://openintents.io): let your
+agents buy anything. Send an intent in plain language and it gets bought end
+to end in a real browser, paid, and resolved to a receipt.
 Inference, browser, compute and bandwidth are free.
 
 > Preview: the API is still being built, so it may change before launch.

@@ -30,7 +30,7 @@ const EXIT: Record<IntentStatus | "error", number> = {
   cancelled: 3,
 };
 
-const HELP = `openintents ${VERSION}: the agentic API to buy anything
+const HELP = `openintents ${VERSION}: let your agents buy anything
 
 Usage:
   openintents run "<intent>" [--max <dollars>] [--context key=value]... [--payment-link] [--wait]

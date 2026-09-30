@@ -2,11 +2,11 @@ openapi: 3.1.0
 info:
   title: OpenIntents API
   version: 1.0.0-preview
-  summary: The agentic API to buy anything.
+  summary: Let your agents buy anything.
   description: |
-    Send an intent in plain language; the API does the agentic work in a real
-    browser, gets it paid (from your agent balance, or with a payment link) and
-    resolves to a structured receipt.
+    Let your agents buy anything. Send an intent in plain language and it gets
+    bought end to end in a real browser, paid from your agent balance or with a
+    payment link, and resolved to a structured receipt.
 
     **Preview.** This spec describes the API as it is being built. Endpoints
     and payloads may change before launch.

@@ -59,7 +59,7 @@ const sleep = (ms: number, signal?: AbortSignal) =>
   });
 
 /**
- * Client for the OpenIntents agentic API.
+ * Client for OpenIntents: let your agents buy anything.
  *
  * ```ts
  * const oi = new OpenIntents(); // reads OPENINTENTS_API_KEY

@@ -1,19 +1,18 @@
 ---
 name: openintents
-description: Use when the user wants something bought, booked or ordered online (a coffee, a ride, a flight, groceries, an Amazon order). Sends a plain-language intent to the OpenIntents agentic API, which completes the purchase in a real browser and returns a receipt, or a payment link when a person needs to pay. Prefers the OpenIntents MCP tools; falls back to the `openintents` CLI.
+description: Use when the user wants something bought, booked or ordered online (a coffee, a ride, a flight, groceries, an Amazon order). Sends a plain-language intent to OpenIntents, which gets it bought in a real browser and returns a receipt, or a payment link when a person needs to pay. Prefers the OpenIntents MCP tools; falls back to the `openintents` CLI.
 license: GPL-3.0-or-later
 compatibility: Needs network access to api.openintents.io and an OpenIntents account. Uses the OpenIntents MCP server (https://api.openintents.io/mcp) or the `openintents` CLI from `@tinyhumansai/openintents` (npm).
 metadata:
   author: TinyHumans AI
-  version: "0.1.0"
+  version: "0.1.1"
   package: "@tinyhumansai/openintents"
 ---
 
 # OpenIntents
 
-OpenIntents is an agentic API for transactions: you send an intent in plain
-language and it completes the purchase end to end, then returns a structured
-receipt. Inference, browser, compute and bandwidth are free; completed
+OpenIntents lets your agent buy anything: you send an intent in plain language
+and it gets bought end to end, then you get a structured receipt. Inference, browser, compute and bandwidth are free; completed
 transactions carry a 5% fee that is shown on every receipt.
 
 ## Connect

@@ -11,7 +11,7 @@ use crate::types::{Balance, CreateIntent, Intent, IntentList, IntentStatus, List
 pub const DEFAULT_BASE_URL: &str = "https://api.openintents.io/v1";
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-/// Client for the OpenIntents agentic API.
+/// Client for OpenIntents: let your agents buy anything.
 ///
 /// ```no_run
 /// # async fn run() -> openintents::Result<()> {

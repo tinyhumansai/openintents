@@ -1,10 +1,10 @@
 # OpenIntents
 
-**The agentic API to buy anything.** Send one intent in plain language, like
-_"book me a trip to Bali"_ or _"get my lunch sorted: a bacon cheeseburger"_.
-The OpenIntents API does the agentic work in a real browser, gets it paid
-(from your agent balance, or with a payment link) and returns a structured
-receipt. Inference, browser, compute and bandwidth are free.
+**Let your agents buy anything.** Your agent says what it wants in one
+sentence, like _"book me a trip to Bali"_ or _"get my lunch sorted: a bacon
+cheeseburger"_, and it gets done: found, checked out and paid (from your agent
+balance, or with a payment link), with a structured receipt at the end.
+Inference, browser, compute and bandwidth are free.
 
 This repository holds the open-source client side: SDKs for TypeScript,
 Python and Rust, the `openintents` CLI, the OpenAPI spec, an agent skill and a

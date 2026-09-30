@@ -1,6 +1,6 @@
 # openintents (Rust)
 
-Rust SDK for [OpenIntents](https://openintents.io), the agentic API to buy
+Rust SDK for [OpenIntents](https://openintents.io): let your agents buy
 anything. Async (tokio + reqwest with rustls).
 
 > Preview: the API is still being built, so it may change before launch.

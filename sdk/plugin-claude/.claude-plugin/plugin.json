@@ -1,7 +1,7 @@
 {
   "name": "openintents",
   "description": "Buy anything from a Claude Code session: connects the OpenIntents MCP server (create, track and cancel intents, check the agent balance) and adds the openintents skill for sending purchases well.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "author": { "name": "TinyHumans AI", "url": "https://openintents.io" },
   "homepage": "https://openintents.io/docs/mcp",
   "repository": "https://github.com/tinyhumansai/openintents",

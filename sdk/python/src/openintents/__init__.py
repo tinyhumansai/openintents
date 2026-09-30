@@ -1,4 +1,4 @@
-"""OpenIntents: the agentic API to buy anything.
+"""OpenIntents: let your agents buy anything.
 
 from openintents import OpenIntents
 

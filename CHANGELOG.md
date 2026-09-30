@@ -4,6 +4,15 @@ All three SDKs share one version. Format: [Keep a Changelog](https://keepachange
 
 ## [Unreleased]
 
+## [0.1.1]
+
+### Changed
+
+- New tagline everywhere: "Let your agents buy anything." Package descriptions,
+  READMEs, CLI help and the spec summary lead with the outcome.
+- Every package ships its LICENSE; the npm CLI entry is declared in the form
+  npm 11 accepts.
+
 ## [0.1.0]
 
 ### Added

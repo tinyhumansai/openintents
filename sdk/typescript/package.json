@@ -1,7 +1,7 @@
 {
   "name": "@tinyhumansai/openintents",
-  "version": "0.1.0",
-  "description": "TypeScript SDK and CLI for OpenIntents, the agentic API to buy anything",
+  "version": "0.1.1",
+  "description": "TypeScript SDK and CLI for OpenIntents: let your agents buy anything",
   "type": "module",
   "license": "GPL-3.0-or-later",
   "homepage": "https://openintents.io/docs",

@@ -1,7 +1,7 @@
-//! Rust SDK for [OpenIntents](https://openintents.io), the agentic API to buy
-//! anything. Send an intent in plain language; the API does the agentic work
-//! in a real browser, gets it paid (from your agent balance, or a payment
-//! link) and resolves to a receipt.
+//! Rust SDK for [OpenIntents](https://openintents.io): let your agents buy
+//! anything. Send an intent in plain language and it gets bought end to end in
+//! a real browser, paid (from your agent balance, or a payment link) and
+//! resolved to a receipt.
 //!
 //! ```no_run
 //! # async fn run() -> openintents::Result<()> {

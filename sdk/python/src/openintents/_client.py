@@ -1,4 +1,4 @@
-"""Sync and async clients for the OpenIntents agentic API."""
+"""Sync and async clients for OpenIntents: let your agents buy anything."""
 
 from __future__ import annotations
 

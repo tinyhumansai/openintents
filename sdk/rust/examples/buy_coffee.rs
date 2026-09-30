@@ -2,11 +2,16 @@
 
 use openintents::{Client, CreateIntent, IntentStatus};
 
+// Returning the SDK error from main keeps the example short; it is large on
+// purpose (it carries the API error fields).
+#[allow(clippy::result_large_err)]
 #[tokio::main]
 async fn main() -> openintents::Result<()> {
     let oi = Client::from_env()?;
     let created = oi
-        .create_intent(CreateIntent::new("flat white, oat milk, pickup 8:45 at the Blue Bottle on 5th").max_amount(1000))
+        .create_intent(
+            CreateIntent::new("flat white, oat milk, pickup 8:45 at the Blue Bottle on 5th").max_amount(1000),
+        )
         .await?;
     println!("created {}", created.id);
 

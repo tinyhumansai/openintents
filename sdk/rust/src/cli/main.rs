@@ -8,7 +8,7 @@ use clap::{Parser, Subcommand};
 use openintents::{Client, CreateIntent, Intent, IntentStatus, ListIntents};
 
 #[derive(Parser)]
-#[command(name = "openintents", version, about = "The agentic API to buy anything")]
+#[command(name = "openintents", version, about = "Let your agents buy anything")]
 struct Cli {
     /// Print one JSON object per line.
     #[arg(long, global = true)]

@@ -9,7 +9,7 @@ this repository. `CLAUDE.md` is a symlink to this file: edit `AGENTS.md`.
 ## What this repo is
 
 `tinyhumansai/openintents` is the **public, open-source** client side of
-OpenIntents, the agentic API to buy anything: SDKs (TypeScript, Python, Rust),
+OpenIntents, which lets your agents buy anything: SDKs (TypeScript, Python, Rust),
 the `openintents` CLI, the OpenAPI spec, an agent skill and a Claude Code
 plugin. The hosted API, website and dashboard are **not** in this repo.
 
