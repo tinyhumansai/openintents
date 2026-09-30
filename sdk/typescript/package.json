@@ -10,13 +10,23 @@
     "url": "git+https://github.com/tinyhumansai/openintents.git",
     "directory": "sdk/typescript"
   },
-  "keywords": ["openintents", "agents", "agentic", "payments", "mcp", "sdk"],
+  "keywords": [
+    "openintents",
+    "agents",
+    "agentic",
+    "payments",
+    "mcp",
+    "sdk"
+  ],
   "engines": {
     "node": ">=20.3"
   },
-  "files": ["dist", "README.md"],
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "bin": {
-    "openintents": "./dist/cli.js"
+    "openintents": "dist/cli.js"
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
