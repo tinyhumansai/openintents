@@ -1,0 +1,20 @@
+# Dependencies and build output
+node_modules/
+dist/
+target/
+.venv/
+__pycache__/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+coverage/
+
+# Local config and secrets
+.env
+.env.*
+!.env.example
+CLAUDE.local.md
+
+# OS / editor
+.DS_Store
+.idea/

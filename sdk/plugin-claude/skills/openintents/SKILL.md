@@ -1,0 +1,1 @@
+../../../skill/openintents/SKILL.md

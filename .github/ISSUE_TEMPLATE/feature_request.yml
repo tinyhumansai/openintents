@@ -1,0 +1,15 @@
+name: Feature request
+description: Suggest an improvement to the SDKs, CLI or spec.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would help?
+      description: API shape, CLI flags or examples are welcome.
