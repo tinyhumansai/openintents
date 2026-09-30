@@ -3,8 +3,8 @@ name: Release
 # Manual: tick the SDKs to publish and pick the bump. The prepare job bumps
 # every SDK version together (sdk/bump-versions.mjs), commits to main and tags
 # vX.Y.Z; each selected SDK is then published from that commit.
-# Secrets: NPM_TOKEN, CARGO_REGISTRY_TOKEN. PyPI uses trusted publishing (OIDC),
-# configured on pypi.org for this repo and the "release" environment.
+# Secrets: NPM_TOKEN, CARGO_REGISTRY_TOKEN (repository), PYPI_API_TOKEN (on the
+# "Production" environment, which only main can deploy to).
 
 on:
   workflow_dispatch:
@@ -99,10 +99,9 @@ jobs:
     needs: prepare
     if: ${{ inputs.python }}
     runs-on: ubuntu-latest
-    environment: release
+    environment: Production
     permissions:
       contents: read
-      id-token: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -112,9 +111,10 @@ jobs:
         working-directory: sdk/python
       - run: uv build
         working-directory: sdk/python
-      - uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          packages-dir: sdk/python/dist
+      - run: uv publish dist/*
+        working-directory: sdk/python
+        env:
+          UV_PUBLISH_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
 
   crates:
     name: crates.io

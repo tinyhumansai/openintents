@@ -100,6 +100,7 @@ cargo test
 
 Manual, via the **Release** workflow (`workflow_dispatch`): pick the SDKs and
 the bump. It bumps all versions, commits to `main`, tags `vX.Y.Z` and
-publishes the selected packages (npm with provenance, PyPI via trusted
-publishing, crates.io). Required repository secrets: `NPM_TOKEN`,
-`CARGO_REGISTRY_TOKEN`; PyPI uses OIDC trusted publishing.
+publishes the selected packages (npm with provenance, PyPI, crates.io).
+Secrets: `NPM_TOKEN` and `CARGO_REGISTRY_TOKEN` (repository), and
+`PYPI_API_TOKEN` on the `Production` environment (deployable from `main`
+only).
