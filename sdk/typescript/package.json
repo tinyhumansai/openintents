@@ -1,0 +1,40 @@
+{
+  "name": "@tinyhumansai/openintents",
+  "version": "0.1.0",
+  "description": "TypeScript SDK and CLI for OpenIntents, the agentic API to buy anything",
+  "type": "module",
+  "license": "GPL-3.0-or-later",
+  "homepage": "https://openintents.io/docs",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tinyhumansai/openintents.git",
+    "directory": "sdk/typescript"
+  },
+  "keywords": ["openintents", "agents", "agentic", "payments", "mcp", "sdk"],
+  "engines": {
+    "node": ">=20.3"
+  },
+  "files": ["dist", "README.md"],
+  "bin": {
+    "openintents": "./dist/cli.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "lint": "tsc --noEmit",
+    "test": "vitest run",
+    "prepublishOnly": "npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0",
+    "vitest": "^3.0.0"
+  }
+}

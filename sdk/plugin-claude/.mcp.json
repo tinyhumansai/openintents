@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "openintents": {
+      "type": "http",
+      "url": "https://api.openintents.io/mcp"
+    }
+  }
+}

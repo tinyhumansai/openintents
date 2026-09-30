@@ -1,0 +1,402 @@
+openapi: 3.1.0
+info:
+  title: OpenIntents API
+  version: 1.0.0-preview
+  summary: The agentic API to buy anything.
+  description: |
+    Send an intent in plain language; the API does the agentic work in a real
+    browser, gets it paid (from your agent balance, or with a payment link) and
+    resolves to a structured receipt.
+
+    **Preview.** This spec describes the API as it is being built. Endpoints
+    and payloads may change before launch.
+
+    Conventions:
+    - Amounts are integers in the smallest currency unit (cents for USD).
+    - Timestamps are ISO 8601 in UTC.
+    - `POST` requests accept an `Idempotency-Key` header.
+    - Lists are cursor-paginated (`limit`, `cursor`, `next_cursor`).
+  license:
+    name: GPL-3.0-or-later
+    url: https://www.gnu.org/licenses/gpl-3.0.html
+  contact:
+    url: https://openintents.io/docs
+servers:
+  - url: https://api.openintents.io/v1
+security:
+  - bearerAuth: []
+
+paths:
+  /intents:
+    post:
+      operationId: createIntent
+      summary: Create an intent
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateIntentParams"
+      responses:
+        "201":
+          description: The intent, usually `queued`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Intent"
+        "4XX":
+          $ref: "#/components/responses/Error"
+        default:
+          $ref: "#/components/responses/Error"
+    get:
+      operationId: listIntents
+      summary: List intents
+      parameters:
+        - name: status
+          in: query
+          schema:
+            $ref: "#/components/schemas/IntentStatus"
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: cursor
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: A page of intents, newest first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IntentList"
+        "4XX":
+          $ref: "#/components/responses/Error"
+        default:
+          $ref: "#/components/responses/Error"
+
+  /intents/{id}:
+    get:
+      operationId: getIntent
+      summary: Retrieve an intent
+      parameters:
+        - $ref: "#/components/parameters/IntentId"
+      responses:
+        "200":
+          description: The intent.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Intent"
+        "4XX":
+          $ref: "#/components/responses/Error"
+        default:
+          $ref: "#/components/responses/Error"
+
+  /intents/{id}/cancel:
+    post:
+      operationId: cancelIntent
+      summary: Cancel an intent that has not paid yet
+      parameters:
+        - $ref: "#/components/parameters/IntentId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: The cancelled intent.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Intent"
+        "4XX":
+          $ref: "#/components/responses/Error"
+        default:
+          $ref: "#/components/responses/Error"
+
+  /balance:
+    get:
+      operationId: getBalance
+      summary: Get the agent balance
+      responses:
+        "200":
+          description: The balance intents pay from.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Balance"
+        "4XX":
+          $ref: "#/components/responses/Error"
+        default:
+          $ref: "#/components/responses/Error"
+
+webhooks:
+  intentEvent:
+    post:
+      operationId: intentEvent
+      summary: An intent changed status
+      description: |
+        Sent to your endpoint for every status change. Check the
+        `OpenIntents-Signature` header before trusting the body, and respond
+        with any 2xx within 10 seconds (failed deliveries are retried).
+      parameters:
+        - name: OpenIntents-Signature
+          in: header
+          required: true
+          schema:
+            type: string
+            example: t=1700000000,v1=366e40c480fe3a9e6a03609dca079cea86d77ae82d5a56b5348208247317a8d1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WebhookEvent"
+      responses:
+        "200":
+          description: Received.
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: An API key, `oi_live_...` or `oi_test_...`.
+
+  parameters:
+    IntentId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        example: int_7f3a2c
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: Retrying with the same key returns the original result.
+      schema:
+        type: string
+
+  responses:
+    Error:
+      description: An error.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorBody"
+
+  schemas:
+    IntentStatus:
+      type: string
+      enum: [queued, running, requires_payment, completed, failed, cancelled]
+
+    CreateIntentParams:
+      type: object
+      required: [intent]
+      properties:
+        intent:
+          type: string
+          description: What to buy or book, in natural language.
+        max_amount:
+          type: integer
+          description: Spending cap in cents. The intent fails rather than exceed it.
+        currency:
+          type: string
+          description: ISO currency code, lowercase.
+        context:
+          type: object
+          additionalProperties: true
+          description: Structured details (addresses, names, loyalty numbers).
+        require_payment_link:
+          type: boolean
+          description: Always return a payment link instead of paying from the balance.
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+          description: Up to 20 of your own key/value pairs.
+
+    Intent:
+      type: object
+      required: [id, object, status, intent, test, created_at]
+      properties:
+        id:
+          type: string
+        object:
+          type: string
+          const: intent
+        status:
+          $ref: "#/components/schemas/IntentStatus"
+        intent:
+          type: string
+        max_amount:
+          type: [integer, "null"]
+        currency:
+          type: [string, "null"]
+        context:
+          type: [object, "null"]
+          additionalProperties: true
+        metadata:
+          type: [object, "null"]
+          additionalProperties:
+            type: string
+        payment:
+          oneOf:
+            - $ref: "#/components/schemas/PaymentRequest"
+            - type: "null"
+        result:
+          oneOf:
+            - $ref: "#/components/schemas/Receipt"
+            - type: "null"
+        error:
+          oneOf:
+            - $ref: "#/components/schemas/IntentError"
+            - type: "null"
+        test:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: [string, "null"]
+          format: date-time
+
+    PaymentRequest:
+      type: object
+      required: [reason, payment_url, total, fee, currency, expires_at]
+      properties:
+        reason:
+          type: string
+          enum: [insufficient_balance, over_limit, requested]
+        payment_url:
+          type: string
+          format: uri
+        merchant:
+          type: string
+        total:
+          type: integer
+        fee:
+          type: integer
+        currency:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+
+    Receipt:
+      type: object
+      required: [merchant, total, fee, currency]
+      properties:
+        merchant:
+          type: string
+        items:
+          type: array
+          items:
+            type: object
+            required: [name, quantity, amount]
+            properties:
+              name:
+                type: string
+              quantity:
+                type: integer
+              amount:
+                type: integer
+        total:
+          type: integer
+        fee:
+          type: integer
+        currency:
+          type: string
+        confirmation:
+          type: [string, "null"]
+        receipt_url:
+          type: [string, "null"]
+          format: uri
+
+    IntentError:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          examples: [over_max_amount, out_of_stock, merchant_unavailable]
+        message:
+          type: string
+
+    IntentList:
+      type: object
+      required: [object, data]
+      properties:
+        object:
+          type: string
+          const: list
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Intent"
+        next_cursor:
+          type: [string, "null"]
+
+    Balance:
+      type: object
+      required: [object, available, currency]
+      properties:
+        object:
+          type: string
+          const: balance
+        available:
+          type: integer
+        currency:
+          type: string
+        monthly_limit:
+          type: [integer, "null"]
+        spent_this_month:
+          type: integer
+
+    ErrorBody:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [type, message]
+          properties:
+            type:
+              type: string
+              enum: [invalid_request, authentication, payment, not_found, conflict, rate_limit, api_error]
+            code:
+              type: string
+            message:
+              type: string
+            param:
+              type: string
+
+    WebhookEvent:
+      type: object
+      description: |
+        Posted to your endpoint on every status change. Verify the
+        `OpenIntents-Signature` header (`t=<unix>,v1=<hex>`): v1 is
+        HMAC-SHA256 of `"{t}.{raw body}"` keyed with your `whsec_` secret.
+      required: [id, type, created_at, data]
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          enum:
+            - intent.running
+            - intent.requires_payment
+            - intent.completed
+            - intent.failed
+            - intent.cancelled
+        created_at:
+          type: string
+          format: date-time
+        data:
+          $ref: "#/components/schemas/Intent"

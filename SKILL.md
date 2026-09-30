@@ -1,0 +1,1 @@
+sdk/skill/openintents/SKILL.md

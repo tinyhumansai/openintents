@@ -1,0 +1,11 @@
+{
+  "name": "openintents",
+  "owner": { "name": "TinyHumans AI", "url": "https://openintents.io" },
+  "plugins": [
+    {
+      "name": "openintents",
+      "source": "./sdk/plugin-claude",
+      "description": "Buy anything from Claude Code: the OpenIntents MCP server plus a skill for sending purchases as intents."
+    }
+  ]
+}
