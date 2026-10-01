@@ -1,3 +1,5 @@
+<img width="1200" height="630" alt="image" src="https://openintents.io/opengraph-image?4ea0166ce5814a38" />
+
 # OpenIntents
 
 **The agentic API to buy anything.** Send one intent in plain language, like
