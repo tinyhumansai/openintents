@@ -8,6 +8,8 @@ use serde::ser::SerializeMap;
 use serde::{Deserialize, Serialize, Serializer};
 use serde_json::Value;
 
+use crate::types_v1::{SecretRequest, SignIn};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum IntentStatus {
@@ -84,6 +86,27 @@ pub struct CreateIntent {
     /// A customer of your account to buy for: their balance and browser profile.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub customer: Option<String>,
+    /// The country its browser goes out from (ISO 3166-1 alpha-2, lowercase).
+    /// Left out, the payer's last country, one inferred from `end_user_ip`,
+    /// or the default is used; see `country_source` on the intent.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub country: Option<String>,
+    /// The address your end user is browsing from, to infer `country` from.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub end_user_ip: Option<String>,
+    /// Where this intent's own events go, signed with the `webhook_secret`
+    /// the create response alone carries.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub webhook_url: Option<String>,
+    /// How long a question to the payer may wait for an answer, in seconds.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input_ttl_seconds: Option<u32>,
+    /// Handles (`sec_...`) of the stored secrets the purchase may use.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub secrets: Option<Vec<String>>,
+    /// The shops (registrable domains) you let the purchase fill secrets on.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub shops: Option<Vec<String>>,
 }
 
 impl CreateIntent {
@@ -140,6 +163,62 @@ impl CreateIntent {
         self.customer = Some(customer.into());
         self
     }
+
+    pub fn country(mut self, country: impl Into<String>) -> Self {
+        self.country = Some(country.into());
+        self
+    }
+
+    pub fn end_user_ip(mut self, ip: impl Into<String>) -> Self {
+        self.end_user_ip = Some(ip.into());
+        self
+    }
+
+    pub fn webhook_url(mut self, url: impl Into<String>) -> Self {
+        self.webhook_url = Some(url.into());
+        self
+    }
+
+    pub fn input_ttl_seconds(mut self, seconds: u32) -> Self {
+        self.input_ttl_seconds = Some(seconds);
+        self
+    }
+
+    pub fn secrets<I, S>(mut self, handles: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.secrets = Some(handles.into_iter().map(Into::into).collect());
+        self
+    }
+
+    pub fn shops<I, S>(mut self, shops: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.shops = Some(shops.into_iter().map(Into::into).collect());
+        self
+    }
+}
+
+/// Why a browser goes out from its country.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CountrySource {
+    /// You named it.
+    Explicit,
+    /// The country the payer last browsed from.
+    Payer,
+    /// Inferred from the `end_user_ip` you gave.
+    EndUserIp,
+    /// Inferred from the address the payer's own page was opened from.
+    RequestIp,
+    /// The default.
+    Default,
+    #[serde(other)]
+    Unknown,
 }
 
 /// Where the payer signs in to a shop, so a waiting intent carries on. Send
@@ -196,6 +275,69 @@ pub enum InputKind {
     /// codes, PINs, card or bank details or ID numbers), and the answer goes
     /// back to the agent.
     Detail,
+    /// An identity document (a passport for a flight, a licence for a
+    /// rental). Answered only on the request's `url`, where the payer enters
+    /// it; [`Client::answer_intent_input`](crate::Client::answer_intent_input)
+    /// refuses any answer but a decline (`422 answer_on_page`).
+    Sensitive,
+    #[serde(other)]
+    Unknown,
+}
+
+/// One of the choices a question offers, such as a seat, a fare or a delivery slot.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InputChoice {
+    /// What an answer names; unique in the question.
+    pub id: String,
+    pub label: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    /// What choosing it adds to the price (negative, takes off), in minor
+    /// units of `currency`.
+    #[serde(default)]
+    pub price_delta: Option<i64>,
+    #[serde(default)]
+    pub currency: Option<String>,
+}
+
+/// What a field of a form takes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum InputFieldType {
+    Text,
+    Email,
+    Phone,
+    /// `YYYY-MM-DD`.
+    Date,
+    Number,
+    /// One of the field's `options`, answered by the option's `id`.
+    Choice,
+    #[serde(other)]
+    Unknown,
+}
+
+/// One field of a form a question asks the payer to fill in.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InputField {
+    /// The key of this field's answer in `values`.
+    pub name: String,
+    pub label: String,
+    #[serde(rename = "type")]
+    pub kind: InputFieldType,
+    pub required: bool,
+    /// For a `choice` field, its options.
+    #[serde(default)]
+    pub options: Vec<InputChoice>,
+}
+
+/// What a plain answer to a question must look like.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum InputExpects {
+    Text,
+    Email,
+    Phone,
+    Choice,
     #[serde(other)]
     Unknown,
 }
@@ -232,6 +374,18 @@ pub struct InputRequest {
     /// answer with one of them (case-insensitive): anything else is a 400.
     #[serde(default)]
     pub options: Vec<String>,
+    /// A detail that offers choices with ids, descriptions and price changes
+    /// (2 to 50), empty otherwise. Answer with the `id` of one as the value:
+    /// any other is a 422 `unknown_option`.
+    #[serde(default)]
+    pub choices: Vec<InputChoice>,
+    /// A detail that is a form (at most 10 fields), empty otherwise. Answer
+    /// every field at once with [`AnswerInput::values`].
+    #[serde(default)]
+    pub fields: Vec<InputField>,
+    /// What a plain answer must look like.
+    #[serde(default)]
+    pub expects: Option<InputExpects>,
     /// Where the shop sent the code, when known.
     #[serde(default)]
     pub channel: Option<InputChannel>,
@@ -263,6 +417,11 @@ pub enum AnswerInput {
     /// The phone number, email or code, or a detail's answer (one of its
     /// `options` when it has any).
     Value { input: String, value: String },
+    /// Every field of a form at once, by the field's `name`.
+    Values {
+        input: String,
+        values: HashMap<String, String>,
+    },
     /// The payer would rather not: the agent stops signing them in this way.
     Decline { input: String },
     /// Only for an approval: the payer approved the sign-in.
@@ -274,6 +433,18 @@ impl AnswerInput {
         Self::Value {
             input: input.into(),
             value: value.into(),
+        }
+    }
+
+    pub fn values<I, K, V>(input: impl Into<String>, values: I) -> Self
+    where
+        I: IntoIterator<Item = (K, V)>,
+        K: Into<String>,
+        V: Into<String>,
+    {
+        Self::Values {
+            input: input.into(),
+            values: values.into_iter().map(|(k, v)| (k.into(), v.into())).collect(),
         }
     }
 
@@ -293,6 +464,10 @@ impl Serialize for AnswerInput {
             Self::Value { input, value } => {
                 map.serialize_entry("input", input)?;
                 map.serialize_entry("value", value)?;
+            }
+            Self::Values { input, values } => {
+                map.serialize_entry("input", input)?;
+                map.serialize_entry("values", values)?;
             }
             Self::Decline { input } => {
                 map.serialize_entry("input", input)?;
@@ -371,6 +546,23 @@ pub struct Intent {
     /// Set when `status` is `requires_input`.
     #[serde(default)]
     pub input_request: Option<InputRequest>,
+    /// Where this intent's own events go, if it was created with a `webhook_url`.
+    #[serde(default)]
+    pub webhook_url: Option<String>,
+    /// Signs the `webhook_url` deliveries (`whsec_...`). Only in the create response.
+    #[serde(default)]
+    pub webhook_secret: Option<String>,
+    /// The secrets the purchase may use, as given (never a value).
+    #[serde(default)]
+    pub secrets: Option<Vec<String>>,
+    /// The shops you let the purchase fill secrets on.
+    #[serde(default)]
+    pub shops: Vec<String>,
+    /// The country its browser goes out from.
+    #[serde(default)]
+    pub country: Option<String>,
+    #[serde(default)]
+    pub country_source: Option<CountrySource>,
     /// Set when `status` is `completed`.
     #[serde(default)]
     pub result: Option<Receipt>,
@@ -417,6 +609,9 @@ pub struct Balance {
     pub customer: Option<String>,
     #[serde(default)]
     pub monthly_limit: Option<i64>,
+    /// The most one purchase may cost, merchant total plus fee, in cents.
+    #[serde(default)]
+    pub per_intent_limit: Option<i64>,
     #[serde(default)]
     pub spent_this_month: Option<i64>,
 }
@@ -434,7 +629,42 @@ pub struct Customer {
     pub email: Option<String>,
     #[serde(default)]
     pub metadata: HashMap<String, String>,
+    /// What the customer may spend; `None` fields are no limit.
+    #[serde(default)]
+    pub limits: Option<Limits>,
     pub created_at: String,
+}
+
+/// What a customer may spend, in cents, counting the merchant's total plus the
+/// fee. `None` is no limit.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Limits {
+    #[serde(default)]
+    pub per_intent: Option<i64>,
+    #[serde(default)]
+    pub monthly: Option<i64>,
+}
+
+/// Limits to set on a customer. A field left out stays as it is; `Some(Some(n))`
+/// sets it (1 to 1000000000); `Some(None)` removes it.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct LimitsParams {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub per_intent: Option<Option<i64>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub monthly: Option<Option<i64>>,
+}
+
+impl LimitsParams {
+    pub fn per_intent(mut self, cents: Option<i64>) -> Self {
+        self.per_intent = Some(cents);
+        self
+    }
+
+    pub fn monthly(mut self, cents: Option<i64>) -> Self {
+        self.monthly = Some(cents);
+        self
+    }
 }
 
 /// Fields for creating or updating a customer. On update, fields left out
@@ -451,9 +681,17 @@ pub struct CustomerParams {
     pub email: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<HashMap<String, String>>,
+    /// What the customer may spend.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limits: Option<LimitsParams>,
 }
 
 impl CustomerParams {
+    pub fn limits(mut self, limits: LimitsParams) -> Self {
+        self.limits = Some(limits);
+        self
+    }
+
     pub fn external_id(mut self, id: impl Into<String>) -> Self {
         self.external_id = Some(id.into());
         self
@@ -718,9 +956,33 @@ pub struct CreateSession {
     /// 1 to 15 (the default), counted from when the session opens.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_minutes: Option<u32>,
+    /// The country its browser goes out from (ISO 3166-1 alpha-2, lowercase).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub country: Option<String>,
+    /// The address your end user is browsing from, to infer `country` from.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub end_user_ip: Option<String>,
+    /// Where this session's own events go.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub webhook_url: Option<String>,
 }
 
 impl CreateSession {
+    pub fn country(mut self, country: impl Into<String>) -> Self {
+        self.country = Some(country.into());
+        self
+    }
+
+    pub fn end_user_ip(mut self, ip: impl Into<String>) -> Self {
+        self.end_user_ip = Some(ip.into());
+        self
+    }
+
+    pub fn webhook_url(mut self, url: impl Into<String>) -> Self {
+        self.webhook_url = Some(url.into());
+        self
+    }
+
     pub fn profile(mut self, profile: impl Into<String>) -> Self {
         self.profile = Some(profile.into());
         self
@@ -771,6 +1033,17 @@ pub struct Session {
     /// `browser_lost` or `error`; others may appear.
     #[serde(default)]
     pub close_reason: Option<String>,
+    /// The country its browser goes out from.
+    #[serde(default)]
+    pub country: Option<String>,
+    #[serde(default)]
+    pub country_source: Option<CountrySource>,
+    /// Where this session's own events go, if it was opened with a `webhook_url`.
+    #[serde(default)]
+    pub webhook_url: Option<String>,
+    /// Signs the `webhook_url` deliveries. Only in the create response.
+    #[serde(default)]
+    pub webhook_secret: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -962,7 +1235,9 @@ pub struct SessionCommandResult {
 
 /// A webhook delivery. Dispatch on `kind` (`type` in the API), or match on
 /// `data`: `intent.*` events carry an intent, `session.*` events (sent only to
-/// endpoints subscribed to them) a session.
+/// endpoints subscribed to them) a session, `sign_in.*` a sign-in link and
+/// `secret_request.completed` a secret request. Others (such as
+/// `webhook_endpoint.test`) are [`WebhookData::Other`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(try_from = "RawWebhookEvent")]
 pub struct WebhookEvent {
@@ -980,6 +1255,8 @@ pub struct WebhookEvent {
 pub enum WebhookData {
     Intent(Box<Intent>),
     Session(Box<Session>),
+    SignIn(Box<SignIn>),
+    SecretRequest(Box<SecretRequest>),
     /// An event type this SDK does not know yet.
     Other(Value),
 }
@@ -997,6 +1274,22 @@ impl WebhookEvent {
     pub fn session(&self) -> Option<&Session> {
         match &self.data {
             WebhookData::Session(session) => Some(session),
+            _ => None,
+        }
+    }
+
+    /// The sign-in link, for `sign_in.*` events.
+    pub fn sign_in(&self) -> Option<&SignIn> {
+        match &self.data {
+            WebhookData::SignIn(sign_in) => Some(sign_in),
+            _ => None,
+        }
+    }
+
+    /// The secret request, for `secret_request.completed`.
+    pub fn secret_request(&self) -> Option<&SecretRequest> {
+        match &self.data {
+            WebhookData::SecretRequest(request) => Some(request),
             _ => None,
         }
     }
@@ -1020,6 +1313,10 @@ impl TryFrom<RawWebhookEvent> for WebhookEvent {
             WebhookData::Intent(Box::new(serde_json::from_value(raw.data)?))
         } else if raw.kind.starts_with("session.") {
             WebhookData::Session(Box::new(serde_json::from_value(raw.data)?))
+        } else if raw.kind.starts_with("sign_in.") {
+            WebhookData::SignIn(Box::new(serde_json::from_value(raw.data)?))
+        } else if raw.kind.starts_with("secret_request.") {
+            WebhookData::SecretRequest(Box::new(serde_json::from_value(raw.data)?))
         } else {
             WebhookData::Other(raw.data)
         };

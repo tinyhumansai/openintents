@@ -53,5 +53,16 @@ a detail's choices are in `input_request.options`), or the payer's sign-in
 to the shop (`requires_login`, `returnOnSignIn` / `return_on_sign_in`). All
 three are on by default.
 
-Versions move together; `node sdk/bump-versions.mjs <patch|minor|major>` bumps
-all of them.
+The `openintents` command exists twice, with the same commands and flags: the
+npm package, and the Rust crate behind `--features cli` (which lacks only
+`mcp`). Commands: `run`, `status`, `list`, `cancel`, `input`, `pay`, `balance`,
+`customers`, `sessions`, `profiles`, `topups`, `sign-ins`, `secrets` and
+`login`. A change to one CLI is a change to the other.
+
+Versions move together: the three packages, the skill and the plugin always
+carry one version, and npm, PyPI and crates.io publish it together.
+`node sdk/bump-versions.mjs <patch|minor|major|current|x.y.z>` bumps all of
+them, and `node sdk/bump-versions.mjs --check` fails when any file disagrees
+(CI runs it). The release workflow refuses a version a selected registry
+already has and, with all three selected, checks afterwards that `npm view`,
+`pip index versions` and `cargo search` show it.

@@ -10,11 +10,21 @@ import random
 import re
 import time
 import uuid
-from collections.abc import AsyncIterator, Iterator, Mapping
+from collections.abc import AsyncIterator, Iterator, Mapping, Sequence
 from typing import Any
 
 import httpx
 
+from ._v1 import (
+    AsyncSecretRequests,
+    AsyncSecrets,
+    AsyncSignIns,
+    AsyncWebhookEndpoints,
+    SecretRequests,
+    Secrets,
+    SignIns,
+    WebhookEndpoints,
+)
 from ._version import __version__
 from .errors import OpenIntentsError, WaitTimeoutError
 from .types import (
@@ -27,8 +37,14 @@ from .types import (
     Intent,
     IntentList,
     IntentStatus,
+    LimitsParams,
+    LiveLink,
+    PortalSession,
     Profile,
     ProfileList,
+    RateLimit,
+    SecretKind,
+    SecretRequestCreated,
     Session,
     SessionCommand,
     SessionCommandResult,
@@ -53,7 +69,9 @@ def _resolve(api_key: str | None, base_url: str | None) -> tuple[str, str]:
     return key, url
 
 
-def _headers(api_key: str, idempotency_key: str | None, accept: str = "application/json") -> dict[str, str]:
+def _headers(
+    api_key: str, idempotency_key: str | None, accept: str = "application/json", wait: int | None = None
+) -> dict[str, str]:
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Accept": accept,
@@ -61,7 +79,16 @@ def _headers(api_key: str, idempotency_key: str | None, accept: str = "applicati
     }
     if idempotency_key:
         headers["Idempotency-Key"] = idempotency_key
+    if wait is not None:
+        headers["Prefer"] = f"wait={wait}"
     return headers
+
+
+def _hold_timeout(timeout: float, wait: int | None) -> httpx.Timeout | None:
+    """A held request (Prefer: wait=N) outlasts the client's timeout: the API holds it up to 50 seconds."""
+    if wait is None:
+        return None
+    return httpx.Timeout(max(timeout, min(wait, 50) + 10.0))
 
 
 def _stream_headers(api_key: str, last_event_id: str | None) -> dict[str, str]:
@@ -89,6 +116,20 @@ def _retryable(status: int) -> bool:
     return status == 429 or status >= 500
 
 
+def _header_int(res: httpx.Response, name: str) -> int | None:
+    try:
+        return int(float(res.headers[name]))
+    except (KeyError, ValueError):
+        return None
+
+
+def _rate_limit(res: httpx.Response) -> RateLimit | None:
+    limit, remaining, reset = (_header_int(res, f"ratelimit-{k}") for k in ("limit", "remaining", "reset"))
+    if limit is None or remaining is None or reset is None:
+        return None
+    return {"limit": limit, "remaining": remaining, "reset": reset}
+
+
 def _error(res: httpx.Response) -> OpenIntentsError:
     try:
         err = res.json().get("error", {}) or {}
@@ -102,6 +143,8 @@ def _error(res: httpx.Response) -> OpenIntentsError:
         param=err.get("param"),
         lease=err.get("lease"),
         request_id=res.headers.get("request-id"),
+        retry_after=_header_int(res, "retry-after"),
+        rate_limit=_rate_limit(res),
     )
 
 
@@ -183,6 +226,12 @@ def _create_body(
     sign_in_link: bool | None = None,
     sign_in_agent: bool | None = None,
     sign_in_hint: SignInHint | None = None,
+    country: str | None = None,
+    end_user_ip: str | None = None,
+    webhook_url: str | None = None,
+    input_ttl_seconds: int | None = None,
+    secrets: Sequence[str] | None = None,
+    shops: Sequence[str] | None = None,
 ) -> dict[str, Any]:
     body: dict[str, Any] = {"intent": intent}
     for k, v in (
@@ -195,17 +244,31 @@ def _create_body(
         ("sign_in_link", sign_in_link),
         ("sign_in_agent", sign_in_agent),
         ("sign_in_hint", dict(sign_in_hint) if sign_in_hint is not None else None),
+        ("country", country),
+        ("end_user_ip", end_user_ip),
+        ("webhook_url", webhook_url),
+        ("input_ttl_seconds", input_ttl_seconds),
+        ("secrets", list(secrets) if secrets is not None else None),
+        ("shops", list(shops) if shops is not None else None),
     ):
         if v is not None:
             body[k] = v
     return body
 
 
-def _answer_body(input_id: str, value: str | None, decline: bool, done: bool) -> dict[str, Any]:
-    # Only the answer given: the API wants exactly one of value, decline and done.
+def _answer_body(
+    input_id: str,
+    value: str | None,
+    decline: bool,
+    done: bool,
+    values: Mapping[str, str] | None = None,
+) -> dict[str, Any]:
+    # Only the answer given: the API wants exactly one of value, values, decline and done.
     body: dict[str, Any] = {"input": input_id}
     if value is not None:
         body["value"] = value
+    if values is not None:
+        body["values"] = dict(values)
     if decline:
         body["decline"] = True
     if done:
@@ -255,6 +318,10 @@ class OpenIntents:
         self.topups = Topups(self)
         self.profiles = Profiles(self)
         self.sessions = Sessions(self)
+        self.secrets = Secrets(self)
+        self.secret_requests = SecretRequests(self)
+        self.sign_ins = SignIns(self)
+        self.webhook_endpoints = WebhookEndpoints(self)
 
     def close(self) -> None:
         self._http.close()
@@ -273,8 +340,11 @@ class OpenIntents:
         json: Any = None,
         params: Mapping[str, Any] | None = None,
         idempotency_key: str | None = None,
+        wait: int | None = None,
     ) -> Any:
-        return self._send(method, path, json=json, params=params, idempotency_key=idempotency_key).json()
+        return self._send(
+            method, path, json=json, params=params, idempotency_key=idempotency_key, wait=wait
+        ).json()
 
     def _send(
         self,
@@ -285,14 +355,17 @@ class OpenIntents:
         params: Mapping[str, Any] | None = None,
         idempotency_key: str | None = None,
         accept: str = "application/json",
+        wait: int | None = None,
     ) -> httpx.Response:
         query = {k: v for k, v in (params or {}).items() if v is not None}
-        headers = _headers(self._api_key, idempotency_key, accept)
+        headers = _headers(self._api_key, idempotency_key, accept, wait)
+        hold = _hold_timeout(self._timeout, wait)
+        extra: dict[str, Any] = {} if hold is None else {"timeout": hold}
         attempt = 0
         while True:
             try:
                 res = self._http.request(
-                    method, self._base_url + path, json=json, params=query, headers=headers
+                    method, self._base_url + path, json=json, params=query, headers=headers, **extra
                 )
             except httpx.TransportError as exc:
                 if attempt < self._max_retries:
@@ -379,9 +452,23 @@ class Intents:
         sign_in_link: bool | None = None,
         sign_in_agent: bool | None = None,
         sign_in_hint: SignInHint | None = None,
+        country: str | None = None,
+        end_user_ip: str | None = None,
+        webhook_url: str | None = None,
+        input_ttl_seconds: int | None = None,
+        secrets: Sequence[str] | None = None,
+        shops: Sequence[str] | None = None,
+        wait: int | None = None,
         idempotency_key: str | None = None,
     ) -> Intent:
-        """Start an intent. Returns immediately, usually with status "queued"."""
+        """Start an intent. Returns immediately, usually with status "queued".
+
+        With wait=N (seconds) the request is held until the intent has
+        something to tell you (see get), so a short purchase can be one call.
+        country= is where the payer's browser goes out from (ISO 3166-1
+        alpha-2, lowercase), or end_user_ip= lets it be inferred; the intent
+        says which in "country" and "country_source".
+        """
         body = _create_body(
             intent,
             max_amount,
@@ -393,13 +480,21 @@ class Intents:
             sign_in_link,
             sign_in_agent,
             sign_in_hint,
+            country,
+            end_user_ip,
+            webhook_url,
+            input_ttl_seconds,
+            secrets,
+            shops,
         )
         return self._c._request(
-            "POST", "/intents", json=body, idempotency_key=idempotency_key or str(uuid.uuid4())
+            "POST", "/intents", json=body, idempotency_key=idempotency_key or str(uuid.uuid4()), wait=wait
         )
 
-    def get(self, intent_id: str) -> Intent:
-        return self._c._request("GET", f"/intents/{intent_id}")
+    def get(self, intent_id: str, *, wait: int | None = None) -> Intent:
+        """The intent. With wait=N (seconds, 50 at most) the request is held until the intent is
+        neither "queued" nor "running", or N seconds pass: a hold that runs out is no error."""
+        return self._c._request("GET", f"/intents/{intent_id}", wait=wait)
 
     def list(
         self,
@@ -439,6 +534,7 @@ class Intents:
         *,
         input: str,
         value: str | None = None,
+        values: Mapping[str, str] | None = None,
         decline: bool = False,
         done: bool = False,
         idempotency_key: str | None = None,
@@ -446,8 +542,9 @@ class Intents:
         """Answer the intent's input_request while it waits in "requires_input".
 
         Pass its id as input=, and one of value= (the phone number, email,
-        code, or a "detail"'s answer: one of its options when it has any),
-        decline=True (the payer would rather not) or done=True (only for an
+        code, or a "detail"'s answer: one of its options, or the id of one of
+        its choices), values= (a form's answers by field name, for a request
+        with fields), decline=True (the payer would rather not) or done=True (only for an
         "approval", once they approved it). Returns the intent, usually
         "running" again.
         A request already answered or expired raises a 409 input_not_waiting.
@@ -458,7 +555,7 @@ class Intents:
         return self._c._request(
             "POST",
             f"/intents/{intent_id}/input",
-            json=_answer_body(input, value, decline, done),
+            json=_answer_body(input, value, decline, done, values),
             idempotency_key=idempotency_key or str(uuid.uuid4()),
         )
 
@@ -528,10 +625,11 @@ class Customers:
         name: str | None = None,
         email: str | None = None,
         metadata: Mapping[str, str] | None = None,
+        limits: LimitsParams | None = None,
         idempotency_key: str | None = None,
     ) -> Customer:
         """Someone you buy for, with their own balance and browser profile."""
-        body = _fields(external_id=external_id, name=name, email=email, metadata=metadata)
+        body = _fields(external_id=external_id, name=name, email=email, metadata=metadata, limits=limits)
         return self._c._request(
             "POST", "/customers", json=body, idempotency_key=idempotency_key or str(uuid.uuid4())
         )
@@ -547,10 +645,49 @@ class Customers:
         name: str | None = None,
         email: str | None = None,
         metadata: Mapping[str, str] | None = None,
+        limits: LimitsParams | None = None,
     ) -> Customer:
         """Fields left out stay; "" clears external_id, name or email; metadata replaces the whole map."""
-        body = _fields(external_id=external_id, name=name, email=email, metadata=metadata)
+        body = _fields(external_id=external_id, name=name, email=email, metadata=metadata, limits=limits)
         return self._c._request("PATCH", f"/customers/{customer_id}", json=body)
+
+    def create_portal_session(
+        self,
+        customer_id: str,
+        *,
+        return_url: str | None = None,
+        country: str | None = None,
+        end_user_ip: str | None = None,
+        ttl_seconds: int | None = None,
+    ) -> PortalSession:
+        """A link to a page where the customer sees and manages their own browser.
+
+        They see the shops they are signed in to, can sign in to another, look
+        around, and have their profile forgotten. Send url to them only; it works
+        once. Until portal sessions are open to your key this raises a 503
+        "portal_unavailable".
+        """
+        body = _fields(
+            return_url=return_url, country=country, end_user_ip=end_user_ip, ttl_seconds=ttl_seconds
+        )
+        return self._c._request("POST", f"/customers/{customer_id}/portal_sessions", json=body)
+
+    def create_secret_request(
+        self,
+        customer_id: str,
+        *,
+        kinds: Sequence[SecretKind],
+        return_url: str | None = None,
+        ttl_seconds: int | None = None,
+    ) -> SecretRequestCreated:
+        """Ask a customer to enter their own secrets (an address, a card, an identity
+        document) on a page of their own, so they never pass through you.
+
+        Send them url; read the result with secret_requests.get or the
+        "secret_request.completed" webhook.
+        """
+        body = _fields(kinds=list(kinds), return_url=return_url, ttl_seconds=ttl_seconds)
+        return self._c._request("POST", f"/customers/{customer_id}/secret_requests", json=body)
 
     def list(
         self, *, external_id: str | None = None, limit: int | None = None, cursor: str | None = None
@@ -645,13 +782,24 @@ class Sessions:
         customer: str | None = None,
         start_url: str | None = None,
         max_minutes: int | None = None,
+        country: str | None = None,
+        end_user_ip: str | None = None,
+        webhook_url: str | None = None,
         idempotency_key: str | None = None,
     ) -> Session:
         """Open a browser on a profile without an intent: by profile or customer, else your account's.
 
         A profile in use raises a 409 "profile_busy" whose lease says what holds it.
         """
-        body = _fields(profile=profile, customer=customer, start_url=start_url, max_minutes=max_minutes)
+        body = _fields(
+            profile=profile,
+            customer=customer,
+            start_url=start_url,
+            max_minutes=max_minutes,
+            country=country,
+            end_user_ip=end_user_ip,
+            webhook_url=webhook_url,
+        )
         return self._c._request(
             "POST", "/sessions", json=body, idempotency_key=idempotency_key or str(uuid.uuid4())
         )
@@ -729,6 +877,12 @@ class Sessions:
     def get_command(self, session_id: str, command_id: str) -> SessionCommandResult:
         return self._c._request("GET", f"/sessions/{session_id}/commands/{command_id}")
 
+    def create_live_link(self, session_id: str) -> LiveLink:
+        """A link to the session's live view. Whoever holds url sees the browser and drives it,
+        though never to pay or place an order. Each call makes a new link, valid for 10 minutes.
+        The session must be open."""
+        return self._c._request("POST", f"/sessions/{session_id}/live_links")
+
     def screenshot(self, session_id: str) -> bytes:
         """A screenshot of the session's page, taken now: JPEG bytes."""
         return self._c._send("GET", f"/sessions/{session_id}/screenshot", accept="image/jpeg").content
@@ -772,6 +926,10 @@ class AsyncOpenIntents:
         self.topups = AsyncTopups(self)
         self.profiles = AsyncProfiles(self)
         self.sessions = AsyncSessions(self)
+        self.secrets = AsyncSecrets(self)
+        self.secret_requests = AsyncSecretRequests(self)
+        self.sign_ins = AsyncSignIns(self)
+        self.webhook_endpoints = AsyncWebhookEndpoints(self)
 
     async def aclose(self) -> None:
         await self._http.aclose()
@@ -790,8 +948,11 @@ class AsyncOpenIntents:
         json: Any = None,
         params: Mapping[str, Any] | None = None,
         idempotency_key: str | None = None,
+        wait: int | None = None,
     ) -> Any:
-        res = await self._send(method, path, json=json, params=params, idempotency_key=idempotency_key)
+        res = await self._send(
+            method, path, json=json, params=params, idempotency_key=idempotency_key, wait=wait
+        )
         return res.json()
 
     async def _send(
@@ -803,14 +964,17 @@ class AsyncOpenIntents:
         params: Mapping[str, Any] | None = None,
         idempotency_key: str | None = None,
         accept: str = "application/json",
+        wait: int | None = None,
     ) -> httpx.Response:
         query = {k: v for k, v in (params or {}).items() if v is not None}
-        headers = _headers(self._api_key, idempotency_key, accept)
+        headers = _headers(self._api_key, idempotency_key, accept, wait)
+        hold = _hold_timeout(self._timeout, wait)
+        extra: dict[str, Any] = {} if hold is None else {"timeout": hold}
         attempt = 0
         while True:
             try:
                 res = await self._http.request(
-                    method, self._base_url + path, json=json, params=query, headers=headers
+                    method, self._base_url + path, json=json, params=query, headers=headers, **extra
                 )
             except httpx.TransportError as exc:
                 if attempt < self._max_retries:
@@ -889,6 +1053,13 @@ class AsyncIntents:
         sign_in_link: bool | None = None,
         sign_in_agent: bool | None = None,
         sign_in_hint: SignInHint | None = None,
+        country: str | None = None,
+        end_user_ip: str | None = None,
+        webhook_url: str | None = None,
+        input_ttl_seconds: int | None = None,
+        secrets: Sequence[str] | None = None,
+        shops: Sequence[str] | None = None,
+        wait: int | None = None,
         idempotency_key: str | None = None,
     ) -> Intent:
         body = _create_body(
@@ -902,13 +1073,19 @@ class AsyncIntents:
             sign_in_link,
             sign_in_agent,
             sign_in_hint,
+            country,
+            end_user_ip,
+            webhook_url,
+            input_ttl_seconds,
+            secrets,
+            shops,
         )
         return await self._c._request(
-            "POST", "/intents", json=body, idempotency_key=idempotency_key or str(uuid.uuid4())
+            "POST", "/intents", json=body, idempotency_key=idempotency_key or str(uuid.uuid4()), wait=wait
         )
 
-    async def get(self, intent_id: str) -> Intent:
-        return await self._c._request("GET", f"/intents/{intent_id}")
+    async def get(self, intent_id: str, *, wait: int | None = None) -> Intent:
+        return await self._c._request("GET", f"/intents/{intent_id}", wait=wait)
 
     async def list(
         self,
@@ -947,6 +1124,7 @@ class AsyncIntents:
         *,
         input: str,
         value: str | None = None,
+        values: Mapping[str, str] | None = None,
         decline: bool = False,
         done: bool = False,
         idempotency_key: str | None = None,
@@ -954,7 +1132,7 @@ class AsyncIntents:
         return await self._c._request(
             "POST",
             f"/intents/{intent_id}/input",
-            json=_answer_body(input, value, decline, done),
+            json=_answer_body(input, value, decline, done, values),
             idempotency_key=idempotency_key or str(uuid.uuid4()),
         )
 
@@ -1008,9 +1186,10 @@ class AsyncCustomers:
         name: str | None = None,
         email: str | None = None,
         metadata: Mapping[str, str] | None = None,
+        limits: LimitsParams | None = None,
         idempotency_key: str | None = None,
     ) -> Customer:
-        body = _fields(external_id=external_id, name=name, email=email, metadata=metadata)
+        body = _fields(external_id=external_id, name=name, email=email, metadata=metadata, limits=limits)
         return await self._c._request(
             "POST", "/customers", json=body, idempotency_key=idempotency_key or str(uuid.uuid4())
         )
@@ -1026,9 +1205,48 @@ class AsyncCustomers:
         name: str | None = None,
         email: str | None = None,
         metadata: Mapping[str, str] | None = None,
+        limits: LimitsParams | None = None,
     ) -> Customer:
-        body = _fields(external_id=external_id, name=name, email=email, metadata=metadata)
+        body = _fields(external_id=external_id, name=name, email=email, metadata=metadata, limits=limits)
         return await self._c._request("PATCH", f"/customers/{customer_id}", json=body)
+
+    async def create_portal_session(
+        self,
+        customer_id: str,
+        *,
+        return_url: str | None = None,
+        country: str | None = None,
+        end_user_ip: str | None = None,
+        ttl_seconds: int | None = None,
+    ) -> PortalSession:
+        """A link to a page where the customer sees and manages their own browser.
+
+        They see the shops they are signed in to, can sign in to another, look
+        around, and have their profile forgotten. Send url to them only; it works
+        once. Until portal sessions are open to your key this raises a 503
+        "portal_unavailable".
+        """
+        body = _fields(
+            return_url=return_url, country=country, end_user_ip=end_user_ip, ttl_seconds=ttl_seconds
+        )
+        return await self._c._request("POST", f"/customers/{customer_id}/portal_sessions", json=body)
+
+    async def create_secret_request(
+        self,
+        customer_id: str,
+        *,
+        kinds: Sequence[SecretKind],
+        return_url: str | None = None,
+        ttl_seconds: int | None = None,
+    ) -> SecretRequestCreated:
+        """Ask a customer to enter their own secrets (an address, a card, an identity
+        document) on a page of their own, so they never pass through you.
+
+        Send them url; read the result with secret_requests.get or the
+        "secret_request.completed" webhook.
+        """
+        body = _fields(kinds=list(kinds), return_url=return_url, ttl_seconds=ttl_seconds)
+        return await self._c._request("POST", f"/customers/{customer_id}/secret_requests", json=body)
 
     async def list(
         self, *, external_id: str | None = None, limit: int | None = None, cursor: str | None = None
@@ -1115,9 +1333,20 @@ class AsyncSessions:
         customer: str | None = None,
         start_url: str | None = None,
         max_minutes: int | None = None,
+        country: str | None = None,
+        end_user_ip: str | None = None,
+        webhook_url: str | None = None,
         idempotency_key: str | None = None,
     ) -> Session:
-        body = _fields(profile=profile, customer=customer, start_url=start_url, max_minutes=max_minutes)
+        body = _fields(
+            profile=profile,
+            customer=customer,
+            start_url=start_url,
+            max_minutes=max_minutes,
+            country=country,
+            end_user_ip=end_user_ip,
+            webhook_url=webhook_url,
+        )
         return await self._c._request(
             "POST", "/sessions", json=body, idempotency_key=idempotency_key or str(uuid.uuid4())
         )
@@ -1182,6 +1411,12 @@ class AsyncSessions:
 
     async def get_command(self, session_id: str, command_id: str) -> SessionCommandResult:
         return await self._c._request("GET", f"/sessions/{session_id}/commands/{command_id}")
+
+    async def create_live_link(self, session_id: str) -> LiveLink:
+        """A link to the session's live view. Whoever holds url sees the browser and drives it,
+        though never to pay or place an order. Each call makes a new link, valid for 10 minutes.
+        The session must be open."""
+        return await self._c._request("POST", f"/sessions/{session_id}/live_links")
 
     async def screenshot(self, session_id: str) -> bytes:
         res = await self._c._send("GET", f"/sessions/{session_id}/screenshot", accept="image/jpeg")

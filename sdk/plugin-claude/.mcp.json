@@ -2,10 +2,7 @@
   "mcpServers": {
     "openintents": {
       "type": "http",
-      "url": "https://api.openintents.io/mcp",
-      "headers": {
-        "Authorization": "Bearer ${OPENINTENTS_API_KEY}"
-      }
+      "url": "https://api.openintents.io/mcp"
     }
   }
 }

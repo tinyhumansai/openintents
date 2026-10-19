@@ -1,4 +1,4 @@
-import { OpenIntentsError, WaitTimeoutError, type ApiErrorType } from "./errors.js";
+import { OpenIntentsError, WaitTimeoutError, type ApiErrorType, type RateLimit } from "./errors.js";
 import { SseParser } from "./sse.js";
 import {
   FINAL_STATUSES,
@@ -6,6 +6,11 @@ import {
   type Balance,
   type BalanceParams,
   type CreateIntentParams,
+  type CreatePortalSessionParams,
+  type CreateSecretParams,
+  type CreateSecretRequestParams,
+  type CreateSignInParams,
+  type CreateWebhookEndpointParams,
   type CreateProfileParams,
   type CreateSessionParams,
   type CreateTopupParams,
@@ -16,6 +21,23 @@ import {
   type EventList,
   type Intent,
   type IntentList,
+  type ListSecretsParams,
+  type ListSecretUsesParams,
+  type ListWebhookDeliveriesParams,
+  type ListWebhookEndpointsParams,
+  type LiveLink,
+  type PortalSession,
+  type Secret,
+  type SecretList,
+  type SecretRequest,
+  type SecretRequestCreated,
+  type SecretUseList,
+  type SignIn,
+  type UpdateWebhookEndpointParams,
+  type WebhookDelivery,
+  type WebhookDeliveryList,
+  type WebhookEndpoint,
+  type WebhookEndpointList,
   type ListCustomersParams,
   type ListEventsParams,
   type ListIntentsParams,
@@ -58,7 +80,19 @@ export interface RequestOptions {
   signal?: AbortSignal;
 }
 
-type Method = "GET" | "POST" | "PATCH" | "DELETE";
+/** Options for the calls that can hold the request until an intent settles. */
+export interface HoldOptions extends RequestOptions {
+  /**
+   * Hold the request up to this many whole seconds (`Prefer: wait=N`, applied
+   * as 50 at most) until the intent is neither `queued` nor `running`: it
+   * finished, or now needs a payment, an answer or a sign-in. A hold that runs
+   * out is no error: the intent comes back as it stands. The client's timeout
+   * is stretched to outlast the hold.
+   */
+  wait?: number;
+}
+
+type Method = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 type Query = Record<string, string | number | undefined>;
 
 /** A stream with no event and no keep-alive for this long (or the client timeout, if longer) is resumed. */
@@ -132,6 +166,10 @@ export class OpenIntents {
   readonly topups: Topups;
   readonly profiles: Profiles;
   readonly sessions: Sessions;
+  readonly secrets: Secrets;
+  readonly secretRequests: SecretRequests;
+  readonly signIns: SignIns;
+  readonly webhookEndpoints: WebhookEndpoints;
 
   private readonly apiKey: string;
   private readonly baseUrl: string;
@@ -155,6 +193,10 @@ export class OpenIntents {
     this.topups = new Topups(this);
     this.profiles = new Profiles(this);
     this.sessions = new Sessions(this);
+    this.secrets = new Secrets(this);
+    this.secretRequests = new SecretRequests(this);
+    this.signIns = new SignIns(this);
+    this.webhookEndpoints = new WebhookEndpoints(this);
   }
 
   /** @internal Makes a request and parses the JSON answer. */
@@ -170,15 +212,21 @@ export class OpenIntents {
   async send(
     method: Method,
     path: string,
-    opts: { body?: unknown; query?: Query; accept?: string } & RequestOptions = {},
+    opts: { body?: unknown; query?: Query; accept?: string; wait?: number } & RequestOptions = {},
   ): Promise<Response> {
     const url = this.url(path, opts.query);
     const headers = this.headers(opts.accept ?? "application/json");
     if (opts.body !== undefined) headers["Content-Type"] = "application/json";
     if (opts.idempotencyKey) headers["Idempotency-Key"] = opts.idempotencyKey;
+    let timeoutMs = this.timeoutMs;
+    if (opts.wait !== undefined) {
+      headers.Prefer = `wait=${opts.wait}`;
+      // The API holds the request up to 50 seconds; leave it room to answer.
+      timeoutMs = Math.max(timeoutMs, (Math.min(opts.wait, 50) + 10) * 1000);
+    }
 
     for (let attempt = 0; ; attempt++) {
-      const timeout = AbortSignal.timeout(this.timeoutMs);
+      const timeout = AbortSignal.timeout(timeoutMs);
       const signal = opts.signal ? AbortSignal.any([opts.signal, timeout]) : timeout;
       let res: Response;
       try {
@@ -342,6 +390,22 @@ function retryAfterMs(res: Response): number | undefined {
   return Number.isFinite(after) && after > 0 ? after * 1000 : undefined;
 }
 
+function headerInt(res: Response, name: string): number | undefined {
+  const raw = res.headers.get(name);
+  if (raw === null || raw.trim() === "") return undefined;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+function rateLimitOf(res: Response): RateLimit | undefined {
+  const limit = headerInt(res, "ratelimit-limit");
+  const remaining = headerInt(res, "ratelimit-remaining");
+  const reset = headerInt(res, "ratelimit-reset");
+  return limit === undefined || remaining === undefined || reset === undefined
+    ? undefined
+    : { limit, remaining, reset };
+}
+
 function networkError(err: unknown): OpenIntentsError {
   return new OpenIntentsError({ message: `Network error: ${(err as Error).message}`, status: 0, type: "network" });
 }
@@ -363,14 +427,20 @@ async function toError(res: Response): Promise<OpenIntentsError> {
     param: body.error?.param,
     lease: body.error?.lease ?? undefined,
     requestId: res.headers.get("request-id") ?? undefined,
+    retryAfter: headerInt(res, "retry-after"),
+    rateLimit: rateLimitOf(res),
   });
 }
 
 class Intents {
   constructor(private readonly client: OpenIntents) {}
 
-  /** Start an intent. Returns immediately, usually with `status: "queued"`. */
-  create(params: CreateIntentParams, opts: RequestOptions = {}): Promise<Intent> {
+  /**
+   * Start an intent. Returns immediately, usually with `status: "queued"`; or,
+   * with `{ wait: N }`, once it has something to tell you (a short purchase
+   * can be one call).
+   */
+  create(params: CreateIntentParams, opts: HoldOptions = {}): Promise<Intent> {
     return this.client.request<Intent>("POST", "/intents", {
       body: params,
       ...opts,
@@ -378,7 +448,7 @@ class Intents {
     });
   }
 
-  get(id: string, opts: RequestOptions = {}): Promise<Intent> {
+  get(id: string, opts: HoldOptions = {}): Promise<Intent> {
     return this.client.request<Intent>("GET", `/intents/${encodeURIComponent(id)}`, opts);
   }
 
@@ -503,6 +573,41 @@ class Customers {
    */
   update(id: string, params: CustomerParams, opts: RequestOptions = {}): Promise<Customer> {
     return this.client.request<Customer>("PATCH", `/customers/${encodeURIComponent(id)}`, {
+      body: params,
+      ...opts,
+    });
+  }
+
+  /**
+   * A link to a page where the customer sees and manages their own browser:
+   * the shops they are signed in to, signing in to another, looking around,
+   * and having their profile forgotten. Send `url` to them only; it works
+   * once. Until portal sessions are open to your key this throws a 503
+   * `portal_unavailable`.
+   */
+  createPortalSession(
+    id: string,
+    params: CreatePortalSessionParams = {},
+    opts: RequestOptions = {},
+  ): Promise<PortalSession> {
+    return this.client.request<PortalSession>("POST", `/customers/${encodeURIComponent(id)}/portal_sessions`, {
+      body: params,
+      ...opts,
+    });
+  }
+
+  /**
+   * Ask a customer to enter their own secrets (an address, a card, an
+   * identity document) on a page of their own, so they never pass through
+   * you. Send them `url`; read the result with `secretRequests.get` or the
+   * `secret_request.completed` webhook.
+   */
+  createSecretRequest(
+    id: string,
+    params: CreateSecretRequestParams,
+    opts: RequestOptions = {},
+  ): Promise<SecretRequestCreated> {
+    return this.client.request<SecretRequestCreated>("POST", `/customers/${encodeURIComponent(id)}/secret_requests`, {
       body: params,
       ...opts,
     });
@@ -653,6 +758,15 @@ class Sessions {
     );
   }
 
+  /**
+   * A link to the session's live view. Whoever holds `url` sees the browser
+   * and drives it, though never to pay or place an order. Each call makes a
+   * new link, valid for 10 minutes. The session must be `open`.
+   */
+  createLiveLink(id: string, opts: RequestOptions = {}): Promise<LiveLink> {
+    return this.client.request<LiveLink>("POST", `/sessions/${encodeURIComponent(id)}/live_links`, opts);
+  }
+
   /** A screenshot of the session's page, taken now: JPEG bytes. */
   async screenshot(id: string, opts: RequestOptions = {}): Promise<Uint8Array> {
     const res = await this.client.send("GET", `/sessions/${encodeURIComponent(id)}/screenshot`, {
@@ -677,5 +791,161 @@ class Sessions {
    */
   streamEvents(id: string, opts: StreamEventsOptions = {}): AsyncGenerator<Event, void, undefined> {
     return this.client.stream(`/sessions/${encodeURIComponent(id)}/events`, opts);
+  }
+}
+
+class Secrets {
+  constructor(private readonly client: OpenIntents) {}
+
+  /**
+   * Store details a purchase may need and that you would not put in a prompt.
+   * Secrets are write-only: it comes back as its `label`, a `mask` and a few
+   * `public` fields, never its values.
+   */
+  create(params: CreateSecretParams, opts: RequestOptions = {}): Promise<Secret> {
+    return this.client.request<Secret>("POST", "/secrets", {
+      body: params,
+      ...opts,
+      idempotencyKey: opts.idempotencyKey ?? crypto.randomUUID(),
+    });
+  }
+
+  /** A payer's secrets in the key's mode, without their values: your account's, or a customer's. */
+  list(params: ListSecretsParams = {}, opts: RequestOptions = {}): Promise<SecretList> {
+    return this.client.request<SecretList>("GET", "/secrets", { query: { ...params }, ...opts });
+  }
+
+  get(id: string, opts: RequestOptions = {}): Promise<Secret> {
+    return this.client.request<Secret>("GET", `/secrets/${encodeURIComponent(id)}`, opts);
+  }
+
+  /** Replace a secret's whole content; its `version` goes up. */
+  replace(id: string, params: CreateSecretParams, opts: RequestOptions = {}): Promise<Secret> {
+    return this.client.request<Secret>("PUT", `/secrets/${encodeURIComponent(id)}`, {
+      body: params,
+      ...opts,
+      idempotencyKey: opts.idempotencyKey ?? crypto.randomUUID(),
+    });
+  }
+
+  /** Delete a secret and its values. */
+  async delete(id: string, opts: RequestOptions = {}): Promise<void> {
+    await this.client.send("DELETE", `/secrets/${encodeURIComponent(id)}`, opts);
+  }
+
+  /** A secret's history, newest first: when it was made, replaced, filled into a shop or refused. Never a value. */
+  uses(id: string, params: ListSecretUsesParams = {}, opts: RequestOptions = {}): Promise<SecretUseList> {
+    return this.client.request<SecretUseList>("GET", `/secrets/${encodeURIComponent(id)}/uses`, {
+      query: { ...params },
+      ...opts,
+    });
+  }
+}
+
+class SecretRequests {
+  constructor(private readonly client: OpenIntents) {}
+
+  /** Where a request for a customer's secrets stands. Make one with `customers.createSecretRequest`. */
+  get(id: string, opts: RequestOptions = {}): Promise<SecretRequest> {
+    return this.client.request<SecretRequest>("GET", `/secret_requests/${encodeURIComponent(id)}`, opts);
+  }
+}
+
+class SignIns {
+  constructor(private readonly client: OpenIntents) {}
+
+  /**
+   * A link where the payer signs in to a shop with no intent attached
+   * ("connect your account"); the profile keeps the login. Send them `url`.
+   * Its end is a `sign_in.completed` or `sign_in.expired` webhook.
+   */
+  create(params: CreateSignInParams, opts: RequestOptions = {}): Promise<SignIn> {
+    return this.client.request<SignIn>("POST", "/sign_ins", {
+      body: params,
+      ...opts,
+      idempotencyKey: opts.idempotencyKey ?? crypto.randomUUID(),
+    });
+  }
+
+  get(id: string, opts: RequestOptions = {}): Promise<SignIn> {
+    return this.client.request<SignIn>("GET", `/sign_ins/${encodeURIComponent(id)}`, opts);
+  }
+}
+
+class WebhookEndpoints {
+  constructor(private readonly client: OpenIntents) {}
+
+  /** Register a URL for your account's events. The response alone carries its `secret`: keep it. */
+  create(params: CreateWebhookEndpointParams, opts: RequestOptions = {}): Promise<WebhookEndpoint> {
+    return this.client.request<WebhookEndpoint>("POST", "/webhook_endpoints", {
+      body: params,
+      ...opts,
+      idempotencyKey: opts.idempotencyKey ?? crypto.randomUUID(),
+    });
+  }
+
+  /** Newest first, without their secrets. */
+  list(params: ListWebhookEndpointsParams = {}, opts: RequestOptions = {}): Promise<WebhookEndpointList> {
+    return this.client.request<WebhookEndpointList>("GET", "/webhook_endpoints", { query: { ...params }, ...opts });
+  }
+
+  /** Iterate every endpoint, following `next_cursor`. */
+  async *listAll(params: Omit<ListWebhookEndpointsParams, "cursor"> = {}): AsyncGenerator<WebhookEndpoint> {
+    let cursor: string | undefined;
+    do {
+      const page = await this.list({ ...params, cursor });
+      yield* page.data;
+      cursor = page.next_cursor ?? undefined;
+    } while (cursor);
+  }
+
+  get(id: string, opts: RequestOptions = {}): Promise<WebhookEndpoint> {
+    return this.client.request<WebhookEndpoint>("GET", `/webhook_endpoints/${encodeURIComponent(id)}`, opts);
+  }
+
+  /** Change its URL, its event types or whether it is `disabled`. */
+  update(id: string, params: UpdateWebhookEndpointParams, opts: RequestOptions = {}): Promise<WebhookEndpoint> {
+    return this.client.request<WebhookEndpoint>("PATCH", `/webhook_endpoints/${encodeURIComponent(id)}`, {
+      body: params,
+      ...opts,
+    });
+  }
+
+  async delete(id: string, opts: RequestOptions = {}): Promise<void> {
+    await this.client.send("DELETE", `/webhook_endpoints/${encodeURIComponent(id)}`, opts);
+  }
+
+  /**
+   * Make a new `secret`, returned here only. The one before keeps signing for
+   * 24 hours; `verifyWebhook` accepts a header that carries both.
+   */
+  rotateSecret(id: string, opts: RequestOptions = {}): Promise<WebhookEndpoint> {
+    return this.client.request<WebhookEndpoint>("POST", `/webhook_endpoints/${encodeURIComponent(id)}/rotate_secret`, opts);
+  }
+
+  /** Send a `webhook_endpoint.test` event to this endpoint alone; the delivery shows how it goes. */
+  test(id: string, opts: RequestOptions = {}): Promise<WebhookDelivery> {
+    return this.client.request<WebhookDelivery>("POST", `/webhook_endpoints/${encodeURIComponent(id)}/test`, opts);
+  }
+
+  /** What was sent to the endpoint, newest first. */
+  listDeliveries(
+    id: string,
+    params: ListWebhookDeliveriesParams = {},
+    opts: RequestOptions = {},
+  ): Promise<WebhookDeliveryList> {
+    return this.client.request<WebhookDeliveryList>("GET", `/webhook_endpoints/${encodeURIComponent(id)}/deliveries`, {
+      query: { ...params },
+      ...opts,
+    });
+  }
+
+  /** Send a delivery again, with the same event `id` and body. */
+  redeliver(id: string, deliveryId: string, opts: RequestOptions = {}): Promise<WebhookDelivery> {
+    return this.client.request<WebhookDelivery>(
+      "POST",
+      `/webhook_endpoints/${encodeURIComponent(id)}/deliveries/${encodeURIComponent(deliveryId)}/redeliver`,
+      opts,
+    );
   }
 }

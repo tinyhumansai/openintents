@@ -28,6 +28,18 @@ info:
       profiles; `test` on an intent or a session says which kind of key made
       it. Only live keys move money.
     - Event streams are Server-Sent Events: send `Accept: text/event-stream`.
+    - Every request with a valid key counts against a limit of 600 a minute
+      for a live key and 300 for a test key (also the burst), shown in the
+      `RateLimit-Limit`, `RateLimit-Remaining` and `RateLimit-Reset` headers.
+      Past it the answer is `429` with `code: rate_limit_exceeded` and
+      `Retry-After`; every other `429` carries `Retry-After` too.
+    - Hold a request until an intent settles with `Prefer: wait=N` (see
+      `POST /intents`), instead of polling.
+    - A browser goes out from a `country` (ISO 3166-1 alpha-2, lowercase,
+      such as `gb`). Name it when you create an intent, session, sign-in link
+      or portal session, or give the payer's own address as `end_user_ip` to
+      have it inferred; else the country the payer last browsed from, else a
+      default. The object says which: `country` and `country_source`.
     - Expect new fields, new enum values and new event types; ignore the ones
       you don't know.
   license:
@@ -45,8 +57,18 @@ paths:
     post:
       operationId: createIntent
       summary: Create an intent
+      description: |
+        Starts the work and returns at once, usually `queued`. With
+        `Prefer: wait=N` it is held until the intent has something to tell
+        you (see the header), so a short purchase can be one call; a retry
+        with the same `Idempotency-Key` waits too.
+
+        `webhook_url`, when sent, names a URL that receives this intent's
+        events as well as your endpoints'. The response alone carries its
+        `webhook_secret`.
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/PreferWait"
       requestBody:
         required: true
         content:
@@ -55,11 +77,22 @@ paths:
               $ref: "#/components/schemas/CreateIntentParams"
       responses:
         "201":
-          description: The intent, usually `queued`.
+          description: The intent, usually `queued`. With `webhook_url`, also its `webhook_secret`.
+          headers:
+            Preference-Applied:
+              $ref: "#/components/headers/Preference-Applied"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Intent"
+        "422":
+          description: "`country_unavailable` (`param: country`): no browser can go out from the country."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "429":
+          $ref: "#/components/responses/RateLimited"
         "4XX":
           $ref: "#/components/responses/Error"
         default:
@@ -95,11 +128,16 @@ paths:
     get:
       operationId: getIntent
       summary: Retrieve an intent
+      description: "With `Prefer: wait=N`, held until the intent settles or `N` seconds pass."
       parameters:
         - $ref: "#/components/parameters/IntentId"
+        - $ref: "#/components/parameters/PreferWait"
       responses:
         "200":
           description: The intent.
+          headers:
+            Preference-Applied:
+              $ref: "#/components/headers/Preference-Applied"
           content:
             application/json:
               schema:
@@ -137,8 +175,16 @@ paths:
         `requires_input`: the phone number, email, code or answer to a
         `detail` in `value`, `decline` when the payer would rather not (the
         agent stops asking, see `InputRequest`), or `done` once they
-        approved an `approval`. Send exactly one of the three, with the
-        request's `id` as `input`. The intent usually goes back to `running`.
+        approved an `approval`. A question with `choices` is answered with
+        the `id` of one in `value`, and one with `fields` with `values`, an
+        object of the answers by field `name`. Send exactly one of
+        `value`, `values`, `decline` and `done`, with the request's `id` as
+        `input`. The intent usually goes back to `running`.
+
+        A question of `kind: sensitive` (an identity document) cannot be
+        answered here: only the payer, on its `url`, which keeps the document
+        in your account's secrets. Declining is allowed; any other answer is
+        `422 answer_on_page`.
 
         OpenIntents types a phone number, email or code into the shop's page
         itself: the agent's model never sees it. It is sealed until then and
@@ -164,8 +210,19 @@ paths:
         "400":
           description: |
             `invalid_request`: a `value` that does not fit the request's
-            `kind`, or is not one of a `detail`'s `options`, or not exactly
-            one of `value`, `decline` and `done`.
+            `kind`, or is not one of a `detail`'s `options`, a form with a
+            required field missing or a value of the wrong type (`param`
+            names the field, never the value), or not exactly one of
+            `value`, `values`, `decline` and `done`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "422":
+          description: |
+            `unknown_option`: an `id` the question never offered (`param` is
+            `value` or `values`), or `answer_on_page`: the question wants an
+            identity document, which is answered on its `url` only.
           content:
             application/json:
               schema:
@@ -252,7 +309,8 @@ paths:
       description: |
         Someone you buy for. A customer has their own balance and their own
         browser profile; pass `customer` when creating an intent. An
-        `external_id` already in use answers `409 conflict`.
+        `external_id` already in use answers `409 conflict`. `limits` caps
+        what they may spend.
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -511,6 +569,9 @@ paths:
         yours, this answers `503` with `code: sessions_unavailable` and
         creates nothing; a retry with the same `Idempotency-Key` opens the
         session once they are. Sessions already open keep working.
+
+        `country`, `end_user_ip` and `webhook_url` work as on an intent. A
+        `country` no browser can go out from is `422 country_unavailable`.
 
         Limits, which may change: a session closes `max_minutes` after it
         opens, after 5 minutes with no command sent or run (`idle`;
@@ -775,15 +836,686 @@ paths:
         default:
           $ref: "#/components/responses/Error"
 
+  /customers/{id}/portal_sessions:
+    post:
+      operationId: createPortalSession
+      summary: Give a customer a link to their own page
+      description: |
+        Makes a link to a page where one of your customers sees and manages
+        their own browser: the shops they are signed in to, signing in to
+        another, opening their browser to look around, and having their
+        profile forgotten. You send them the link; they need no OpenIntents
+        account and no API key.
+
+        `url` is theirs alone and works once, for 30 minutes (or `ttl_seconds`
+        if that is shorter); opening it starts a session for that customer
+        that lasts `ttl_seconds` (default 8 hours). Each call makes a new
+        link. It takes no `Idempotency-Key`, since the link is shown once and
+        is not kept in a stored response.
+
+        The country the customer's browser goes out from is chosen as for an
+        intent (see `country`).
+
+        Portal sessions may not be open to every key yet. Until they are open
+        to yours, this answers `503` with `code: portal_unavailable` and makes
+        nothing.
+      parameters:
+        - $ref: "#/components/parameters/CustomerId"
+      requestBody:
+        required: true
+        description: Send `{}` for the defaults.
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePortalSessionParams"
+      responses:
+        "201":
+          description: The portal session.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PortalSession"
+        "404":
+          description: "`not_found`: no such customer in your account."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "422":
+          description: "`country_unavailable` (`param: country`)."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "503":
+          description: "`portal_unavailable`: portal sessions are not open to this key yet. Nothing was made."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "4XX":
+          $ref: "#/components/responses/Error"
+        default:
+          $ref: "#/components/responses/Error"
+
+  /customers/{id}/secret_requests:
+    post:
+      operationId: createSecretRequest
+      summary: Ask a customer to enter their own secrets
+      description: |
+        Makes a link to a page where the customer types their own secrets
+        (see `Secret`): an address, a contact, a card and the like. What they
+        enter goes straight into the vault, so it never passes through your
+        code, your agent or its model. You get the handles of what they made
+        by reading the request, or from the `secret_request.completed`
+        webhook.
+
+        `url` is theirs alone and works once, until `expires_at`. It takes no
+        `Idempotency-Key`, since the link is the capability and is not kept in
+        a stored response. The secrets made are the customer's own, in the
+        mode of the key that made the request, with `entered_by: payer`.
+
+        Answers `503` with `code: secrets_unavailable` when secrets cannot be
+        stored right now, and with `code: cards_unavailable` when `kinds`
+        asks for a `card` and cards cannot be taken.
+      parameters:
+        - $ref: "#/components/parameters/CustomerId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSecretRequestParams"
+      responses:
+        "201":
+          description: The request, `pending`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SecretRequestCreated"
+        "404":
+          description: "`not_found`: no such customer in your account."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "503":
+          description: "`secrets_unavailable` or `cards_unavailable`."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "4XX":
+          $ref: "#/components/responses/Error"
+        default:
+          $ref: "#/components/responses/Error"
+
+  /secret_requests/{id}:
+    get:
+      operationId: getSecretRequest
+      summary: Retrieve a secret request
+      description: |
+        Where the request stands and, once the customer filled it in, the
+        handles of the secrets it made. Never a value, a mask or the link.
+        Read it with a key of the mode that made it.
+      parameters:
+        - $ref: "#/components/parameters/SecretRequestId"
+      responses:
+        "200":
+          description: The request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SecretRequest"
+        "4XX":
+          $ref: "#/components/responses/Error"
+        default:
+          $ref: "#/components/responses/Error"
+
+  /secrets:
+    post:
+      operationId: createSecret
+      summary: Store a secret
+      description: |
+        Stores details a purchase may need and that you would not put in a
+        prompt: an address, a contact, a card, an identity document, a shop
+        login or a loyalty number. Secrets are write-only. The values are
+        sealed on arrival and no call, event, webhook or log returns them; a
+        secret comes back as its `label`, a `mask` and the few `public` fields
+        its kind has. The agent is told that a secret exists, never what it
+        holds, and OpenIntents types the values into a shop's page itself.
+
+        `kind` says which `fields` are taken (see `SecretKind`); a field a
+        kind does not have is refused, and an error names the field and the
+        rule, never the value sent. A secret belongs to one payer, your
+        account or one of its `customer`s, and to the mode of the key that
+        wrote it: a test key never sees a live secret. A body may weigh at
+        most 16 KB (`413`), and a payer may have 50 secrets in a mode.
+
+        A write counts against 60 a minute for the key; past that the answer
+        is `429` with `code: too_many_writes` and `Retry-After`. Answers `503`
+        with `code: secrets_unavailable` when secrets cannot be stored right
+        now. A retry with the same `Idempotency-Key` and the same body returns
+        the first result; the same key with another body is
+        `409 idempotency_key_reused`.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSecretParams"
+      responses:
+        "201":
+          description: The secret, without its values.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Secret"
+        "413":
+          description: The body is over 16 KB.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "429":
+          description: "`too_many_writes`, with `Retry-After`."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "503":
+          description: "`secrets_unavailable`. Nothing was stored."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "4XX":
+          $ref: "#/components/responses/Error"
+        default:
+          $ref: "#/components/responses/Error"
+    get:
+      operationId: listSecrets
+      summary: List secrets
+      description: |
+        A payer's secrets in the key's mode, without their values: your
+        account's, or a customer's with `customer`.
+      parameters:
+        - name: customer
+          in: query
+          description: A customer's secrets instead of your account's.
+          schema:
+            type: string
+        - name: kind
+          in: query
+          description: Only secrets of this kind.
+          schema:
+            $ref: "#/components/schemas/SecretKind"
+      responses:
+        "200":
+          description: The secrets.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SecretList"
+        "4XX":
+          $ref: "#/components/responses/Error"
+        default:
+          $ref: "#/components/responses/Error"
+
+  /secrets/{id}:
+    get:
+      operationId: getSecret
+      summary: Retrieve a secret
+      description: Its label, mask and public fields; never its values.
+      parameters:
+        - $ref: "#/components/parameters/SecretId"
+      responses:
+        "200":
+          description: The secret, without its values.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Secret"
+        "4XX":
+          $ref: "#/components/responses/Error"
+        default:
+          $ref: "#/components/responses/Error"
+    put:
+      operationId: replaceSecret
+      summary: Replace a secret
+      description: |
+        Writes the whole secret again: a new `version`, the old values gone.
+        There is no partial update, so send every field. The body is the one
+        of `POST /secrets`; it may repeat the `customer` but not move the
+        secret to another. Counts against the same 60 writes a minute, and
+        honours `Idempotency-Key` as a create does.
+      parameters:
+        - $ref: "#/components/parameters/SecretId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSecretParams"
+      responses:
+        "200":
+          description: The secret, without its values.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Secret"
+        "413":
+          description: The body is over 16 KB.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "429":
+          description: "`too_many_writes`, with `Retry-After`."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "503":
+          description: "`secrets_unavailable`."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "4XX":
+          $ref: "#/components/responses/Error"
+        default:
+          $ref: "#/components/responses/Error"
+    delete:
+      operationId: deleteSecret
+      summary: Delete a secret
+      description: Erases its values. Its history (see `GET /secrets/{id}/uses`) stays readable.
+      parameters:
+        - $ref: "#/components/parameters/SecretId"
+      responses:
+        "204":
+          description: Deleted.
+        "4XX":
+          $ref: "#/components/responses/Error"
+        default:
+          $ref: "#/components/responses/Error"
+
+  /secrets/{id}/uses:
+    get:
+      operationId: listSecretUses
+      summary: See what was done with a secret
+      description: |
+        The secret's history, newest first: when it was written, replaced or
+        deleted, and each time a value was typed into a shop, was used to
+        fund a balance, or a use was refused. Never a value or a mask. A
+        deleted secret's history stays readable.
+      parameters:
+        - $ref: "#/components/parameters/SecretId"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: A page of uses.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SecretUseList"
+        "4XX":
+          $ref: "#/components/responses/Error"
+        default:
+          $ref: "#/components/responses/Error"
+
+  /sessions/{id}/live_links:
+    post:
+      operationId: createLiveLink
+      summary: Get a link to watch and drive a session
+      description: |
+        Makes a link to a page that shows the session's browser live. Whoever
+        holds `url` sees the browser and drives it: taps, scrolls and typing.
+        Each call makes a new link, valid for 10 minutes and for this one
+        session while it is open. Send no body.
+
+        What is done through it is checked as a session command's `act` is: a
+        control that places an order or pays is refused with
+        `payment_not_allowed`, and a page off the web a session may reach with
+        `not_allowed`. The session must be `open` (`409 session_not_open`).
+
+        A live view may not be open to every key yet. Until it is open to
+        yours, this answers `503` with `code: live_unavailable` and makes
+        nothing.
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+      responses:
+        "201":
+          description: The link, shown once.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LiveLink"
+        "409":
+          description: "`session_not_open`."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "503":
+          description: "`live_unavailable`."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "4XX":
+          $ref: "#/components/responses/Error"
+        default:
+          $ref: "#/components/responses/Error"
+
+  /sign_ins:
+    post:
+      operationId: createSignIn
+      summary: Get a payer a link to sign in to a shop
+      description: |
+        Makes a link to a page where the payer signs in to a shop, with no
+        intent attached ("connect your account"). They see the shop's own
+        sign-in page in a browser OpenIntents runs on their profile, which
+        never pays, places orders or enters card details. When they are done,
+        the profile keeps the login, so later intents find them signed in.
+
+        `url` is for the payer only: it works on the first device that opens
+        it, until `expires_at`. Follow the link's `status`, or take the
+        `sign_in.completed` and `sign_in.expired` webhooks (sent only to
+        endpoints that name them).
+
+        `403 shop_not_allowed` when links are not made for the shop. Answers
+        `503` with `code: sign_ins_unavailable` when sign-in links are not
+        open to your key yet; nothing is made, and a retry with the same
+        `Idempotency-Key` makes the link once they are.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSignInParams"
+      responses:
+        "201":
+          description: The link, `open`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SignIn"
+        "403":
+          description: "`shop_not_allowed`."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "422":
+          description: "`country_unavailable` (`param: country`)."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "503":
+          description: "`sign_ins_unavailable`."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "4XX":
+          $ref: "#/components/responses/Error"
+        default:
+          $ref: "#/components/responses/Error"
+
+  /sign_ins/{id}:
+    get:
+      operationId: getSignIn
+      summary: Retrieve a sign-in link
+      parameters:
+        - $ref: "#/components/parameters/SignInId"
+      responses:
+        "200":
+          description: The sign-in link.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SignIn"
+        "4XX":
+          $ref: "#/components/responses/Error"
+        default:
+          $ref: "#/components/responses/Error"
+
+  /webhook_endpoints:
+    post:
+      operationId: createWebhookEndpoint
+      summary: Add a webhook endpoint
+      description: |
+        Registers a URL that receives your account's events, signed with a
+        secret made for it. The secret (`secret`, `whsec_...`) is in this
+        response and in a rotation's only: keep it. An account can have 16
+        endpoints. `url` must be `https` on the default port and resolve to a
+        public address.
+
+        An endpoint with no `events` gets every intent event
+        (`intent.*`); name `session.*`, `sign_in.*` or `secret_request.*`
+        types to get those too.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateWebhookEndpointParams"
+      responses:
+        "201":
+          description: The endpoint, with its `secret`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookEndpoint"
+        "4XX":
+          $ref: "#/components/responses/Error"
+        default:
+          $ref: "#/components/responses/Error"
+    get:
+      operationId: listWebhookEndpoints
+      summary: List webhook endpoints
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: A page of endpoints, newest first. Their secrets are not shown.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookEndpointList"
+        "4XX":
+          $ref: "#/components/responses/Error"
+        default:
+          $ref: "#/components/responses/Error"
+
+  /webhook_endpoints/{id}:
+    get:
+      operationId: getWebhookEndpoint
+      summary: Retrieve a webhook endpoint
+      parameters:
+        - $ref: "#/components/parameters/WebhookEndpointId"
+      responses:
+        "200":
+          description: The endpoint, without its secret.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookEndpoint"
+        "4XX":
+          $ref: "#/components/responses/Error"
+        default:
+          $ref: "#/components/responses/Error"
+    patch:
+      operationId: updateWebhookEndpoint
+      summary: Update a webhook endpoint
+      description: |
+        Fields left out stay as they are. `events: []` goes back to every
+        intent event. A disabled endpoint receives nothing new.
+      parameters:
+        - $ref: "#/components/parameters/WebhookEndpointId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateWebhookEndpointParams"
+      responses:
+        "200":
+          description: The endpoint, without its secret.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookEndpoint"
+        "4XX":
+          $ref: "#/components/responses/Error"
+        default:
+          $ref: "#/components/responses/Error"
+    delete:
+      operationId: deleteWebhookEndpoint
+      summary: Delete a webhook endpoint
+      parameters:
+        - $ref: "#/components/parameters/WebhookEndpointId"
+      responses:
+        "204":
+          description: Deleted.
+        "4XX":
+          $ref: "#/components/responses/Error"
+        default:
+          $ref: "#/components/responses/Error"
+
+  /webhook_endpoints/{id}/rotate_secret:
+    post:
+      operationId: rotateWebhookEndpointSecret
+      summary: Rotate an endpoint's signing secret
+      description: |
+        Makes a new `secret`, returned here only. The one before keeps
+        signing for 24 hours (`previous_secret_expires_at`): while it does,
+        each delivery's `OpenIntents-Signature` carries a `v1` for each
+        secret (`t=...,v1=...,v1=...`), and a receiver that accepts either
+        can switch over without dropping an event.
+      parameters:
+        - $ref: "#/components/parameters/WebhookEndpointId"
+      responses:
+        "200":
+          description: The endpoint, with its new `secret`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookEndpoint"
+        "4XX":
+          $ref: "#/components/responses/Error"
+        default:
+          $ref: "#/components/responses/Error"
+
+  /webhook_endpoints/{id}/test:
+    post:
+      operationId: testWebhookEndpoint
+      summary: Send a test event to an endpoint
+      description: |
+        Queues a `webhook_endpoint.test` event (see `WebhookTestEvent`) for
+        this endpoint alone, so you can check your receiver and signature
+        code. The delivery shows how it goes. `409 conflict` while the
+        endpoint is disabled.
+      parameters:
+        - $ref: "#/components/parameters/WebhookEndpointId"
+      responses:
+        "201":
+          description: The delivery, `pending`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookDelivery"
+        "4XX":
+          $ref: "#/components/responses/Error"
+        default:
+          $ref: "#/components/responses/Error"
+
+  /webhook_endpoints/{id}/deliveries:
+    get:
+      operationId: listWebhookDeliveries
+      summary: See an endpoint's deliveries
+      description: |
+        What was sent to the endpoint, newest first: whether each arrived, how
+        many attempts it took and what your receiver answered. Deliveries to
+        an intent's or a session's own `webhook_url` are not in any log.
+      parameters:
+        - $ref: "#/components/parameters/WebhookEndpointId"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: A page of deliveries.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookDeliveryList"
+        "4XX":
+          $ref: "#/components/responses/Error"
+        default:
+          $ref: "#/components/responses/Error"
+
+  /webhook_endpoints/{id}/deliveries/{delivery}/redeliver:
+    post:
+      operationId: redeliverWebhook
+      summary: Send a delivery again
+      description: |
+        Queues a new delivery with the same event `id` and body. `409
+        conflict` while the original is still `pending`, or while the endpoint
+        is disabled.
+      parameters:
+        - $ref: "#/components/parameters/WebhookEndpointId"
+        - name: delivery
+          in: path
+          required: true
+          schema:
+            type: string
+            examples: [whd_8f2c41d0a9e7b3f15c62d1aa]
+      responses:
+        "201":
+          description: The new delivery, `pending`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookDelivery"
+        "4XX":
+          $ref: "#/components/responses/Error"
+        default:
+          $ref: "#/components/responses/Error"
+
 webhooks:
   intentEvent:
     post:
       operationId: intentEvent
       summary: An intent changed status
       description: |
-        Sent to your endpoint for every status change. Check the
+        Sent to your endpoints (see `/webhook_endpoints`) for every status
+        change, and to the intent's own `webhook_url` if it has one. Check the
         `OpenIntents-Signature` header before trusting the body, and respond
         with any 2xx within 10 seconds (failed deliveries are retried).
+        While a secret is being rotated the header carries one `v1` for each
+        secret that still signs (`t=...,v1=...,v1=...`): accept any that
+        matches.
       parameters:
         - name: OpenIntents-Signature
           in: header
@@ -797,6 +1529,75 @@ webhooks:
           application/json:
             schema:
               $ref: "#/components/schemas/WebhookEvent"
+      responses:
+        "200":
+          description: Received.
+  signInEvent:
+    post:
+      operationId: signInEvent
+      summary: A sign-in link ended
+      description: |
+        Sent when a link made with `POST /sign_ins` ends: the payer signed in
+        (`sign_in.completed`) or it ran out (`sign_in.expired`). Same signature
+        as `intentEvent`. Only endpoints that list the type receive it.
+      parameters:
+        - name: OpenIntents-Signature
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SignInWebhookEvent"
+      responses:
+        "200":
+          description: Received.
+  secretRequestEvent:
+    post:
+      operationId: secretRequestEvent
+      summary: A customer filled in a secret request
+      description: |
+        Sent when a customer finishes a request made with
+        `POST /customers/{id}/secret_requests`. Same signature as
+        `intentEvent`. Only endpoints that list the type receive it. It holds
+        the handles of the secrets made, never a value.
+      parameters:
+        - name: OpenIntents-Signature
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SecretRequestWebhookEvent"
+      responses:
+        "200":
+          description: Received.
+  webhookEndpointTest:
+    post:
+      operationId: webhookEndpointTest
+      summary: A test event
+      description: |
+        Sent to one endpoint when you call `POST /webhook_endpoints/{id}/test`.
+        Same signature as `intentEvent`.
+      parameters:
+        - name: OpenIntents-Signature
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WebhookTestEvent"
       responses:
         "200":
           description: Received.
@@ -872,6 +1673,49 @@ components:
       schema:
         type: string
         example: ses_92c4aa
+    SecretId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        examples: [sec_9c1b7a40d3e85f26]
+    SecretRequestId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        examples: [sr_3d71c0b8a2e94f65]
+    SignInId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        examples: [sgn_6a20e4b19c7d3f58]
+    WebhookEndpointId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        examples: [we_4c82a1d09b7e3f56]
+    PreferWait:
+      name: Prefer
+      in: header
+      required: false
+      description: |
+        `wait=N` holds the request until the intent is neither `queued` nor
+        `running` (it finished, or now needs a payment, an answer or a
+        sign-in), or `N` seconds pass, and then answers with the intent as it
+        stands. `N` is a whole number of seconds; more than 50 is applied as
+        50, and a value that is no whole number is ignored. The answer's
+        `Preference-Applied: wait=N` header says what was applied. A
+        `wait` that times out is no error: poll or wait again.
+      schema:
+        type: string
+        examples: ["wait=30"]
     Limit:
       name: limit
       in: query
@@ -907,7 +1751,49 @@ components:
         minLength: 1
         maxLength: 255
 
+  headers:
+    RateLimit-Limit:
+      description: Requests a minute your key may make; also the burst.
+      schema:
+        type: integer
+    RateLimit-Remaining:
+      description: Requests left in your bucket now.
+      schema:
+        type: integer
+    RateLimit-Reset:
+      description: Seconds until your bucket is full again.
+      schema:
+        type: integer
+    Retry-After:
+      description: Whole seconds to wait before the request can pass.
+      schema:
+        type: integer
+    Preference-Applied:
+      description: "`wait=N`: the wait that was applied (see the `Prefer` header)."
+      schema:
+        type: string
+        examples: ["wait=30"]
+
   responses:
+    RateLimited:
+      description: |
+        `rate_limit_exceeded` (type `rate_limit`): your key made more requests
+        than it may a minute. Wait `Retry-After` seconds. Other `429`s
+        (`too_many_writes`, `too_many_commands`, `too_many_streams`) carry
+        `Retry-After` too.
+      headers:
+        Retry-After:
+          $ref: "#/components/headers/Retry-After"
+        RateLimit-Limit:
+          $ref: "#/components/headers/RateLimit-Limit"
+        RateLimit-Remaining:
+          $ref: "#/components/headers/RateLimit-Remaining"
+        RateLimit-Reset:
+          $ref: "#/components/headers/RateLimit-Reset"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorBody"
     Error:
       description: An error.
       content:
@@ -997,10 +1883,61 @@ components:
             balance and their browser profile. Without it, your account's own.
         metadata:
           $ref: "#/components/schemas/MetadataParam"
+        country:
+          type: string
+          pattern: "^[a-z]{2}$"
+          description: |
+            Where the payer's browser goes out from, ISO 3166-1 alpha-2 in
+            lowercase (`gb`, not `uk`). Without it: the country the payer last
+            browsed from, else the country of `end_user_ip`, else the default.
+            `422 country_unavailable` (`param: country`) when no browser can
+            go out from it, `400` when it is malformed.
+        end_user_ip:
+          type: string
+          description: |
+            The payer's own IP address, so their country can be inferred:
+            your server's address says nothing of where they are. Not stored.
+            A private address is ignored; a malformed one is `400`.
+        webhook_url:
+          type: string
+          format: uri
+          description: |
+            A URL that receives this intent's events (`intent.*`) as well as
+            your endpoints', signed with a secret made for the intent and
+            returned once, as `webhook_secret`, in this create response. `https`
+            on the default port, resolving to a public address; `400` naming
+            `webhook_url` otherwise.
+        input_ttl_seconds:
+          type: integer
+          minimum: 60
+          maximum: 86400
+          default: 86400
+          description: |
+            How long a question the agent asks the payer (`requires_input`)
+            may wait for its answer once it stops waiting with a browser open
+            (after about 2 minutes): then the intent stays `requires_input`,
+            its `input_request.expires_at` the time it gives up, and an answer
+            lets it carry on. After that it fails with `input_expired`.
+        secrets:
+          type: array
+          items:
+            type: string
+          description: |
+            Handles (`sec_...`) of the payer's secrets the purchase may use.
+            Without it, it may use the payer's defaults; `[]` offers none. A
+            handle that is not the payer's own, in the key's mode, is `404`
+            with `param: secrets`.
+        shops:
+          type: array
+          items:
+            type: string
+          description: |
+            Shops (domains) you let the purchase fill secrets on. `["*"]` lets
+            it fill address and contact secrets on any shop it reaches.
 
     Intent:
       type: object
-      required: [id, object, status, intent, customer, currency, metadata, test, created_at]
+      required: [id, object, status, intent, customer, currency, metadata, webhook_url, secrets, shops, country, country_source, test, created_at]
       properties:
         id:
           type: string
@@ -1039,6 +1976,26 @@ components:
           oneOf:
             - $ref: "#/components/schemas/InputRequest"
             - type: "null"
+        webhook_url:
+          type: [string, "null"]
+          format: uri
+          description: Where this intent's own events go, if it was created with a `webhook_url`.
+        webhook_secret:
+          type: string
+          description: The secret that signs the `webhook_url` deliveries (`whsec_...`). Only in the create response.
+        secrets:
+          type: [array, "null"]
+          items:
+            type: string
+          description: |
+            The handles of the secrets the purchase may use, as given;
+            `null` when none were named (the payer's defaults apply). Never a
+            value.
+        shops:
+          type: array
+          items:
+            type: string
+          description: The shops you let the purchase fill secrets on.
         result:
           oneOf:
             - $ref: "#/components/schemas/Receipt"
@@ -1049,6 +2006,13 @@ components:
             - type: "null"
         test:
           type: boolean
+        country:
+          type: [string, "null"]
+          description: The country its browser goes out from.
+        country_source:
+          oneOf:
+            - $ref: "#/components/schemas/CountrySource"
+            - type: "null"
         created_at:
           type: string
           format: date-time
@@ -1114,11 +2078,20 @@ components:
 
         A `detail` comes with the same `requires_input` status and
         `intent.requires_input` webhook, and an intent asks at most 3.
-        The request expires after 5 minutes. If it expires, or the payer
-        declines, the agent stops asking: the intent then waits on a sign-in
-        link (`requires_login`) if `sign_in_link` allows, or fails with
-        `login_required`. For a `detail`, it fails with `needs_information`.
-      required: [id, kind, shop, prompt, options, channel, length, url, expires_at, attempts_left]
+        A sign-in question expires after 5 minutes. If it expires, or the
+        payer declines, the agent stops asking: the intent then waits on a
+        sign-in link (`requires_login`) if `sign_in_link` allows, or fails
+        with `login_required`. A `detail` the payer has not answered after
+        about 2 minutes is parked: the intent stays `requires_input` with the
+        same request, whose `expires_at` becomes the time it gives up (see
+        `input_ttl_seconds`), and an answer lets the purchase carry on. It
+        fails with `needs_information` when the payer declines and with
+        `input_expired` when no answer comes in time.
+
+        A `detail` can offer `choices` (each with an `id`, answered by that
+        id) or ask a form of `fields` (answered with `values`); `expects`
+        says what a plain answer must look like.
+      required: [id, kind, shop, prompt, options, choices, fields, expects, channel, length, url, expires_at, attempts_left]
       properties:
         id:
           type: string
@@ -1138,7 +2111,14 @@ components:
             or a colour. `prompt` is then the agent's own question (never
             asking for passwords, codes, PINs, card or bank details or ID
             numbers), and the answer goes back to the agent.
-          enum: [phone, email, code, approval, detail]
+
+            `sensitive`: an identity document (a passport for a flight, a
+            licence for a rental). It is answered only on `url`, where the
+            payer enters it and it is kept as one of your account's secrets
+            bound to the shop; the request has no `choices` or `fields`, and
+            the answer is never returned. `POST /intents/{id}/input` refuses
+            any answer but a decline (`422 answer_on_page`).
+          enum: [phone, email, code, approval, detail, sensitive]
         shop:
           type: string
           description: The shop's registrable domain, such as `blinkit.com`.
@@ -1161,6 +2141,30 @@ components:
             answer with one of them (case-insensitive): anything else is
             `400`.
           examples: [["S", "M", "L"]]
+        choices:
+          type: array
+          maxItems: 50
+          items:
+            $ref: "#/components/schemas/InputChoice"
+          description: |
+            Always present: empty, except for a `detail` that offers choices
+            with ids, descriptions and price changes (2 to 50). Answer with
+            the `id` of one in `value`: any other is `422 unknown_option`.
+        fields:
+          type: array
+          maxItems: 10
+          items:
+            $ref: "#/components/schemas/InputField"
+          description: |
+            Always present: empty, except for a `detail` that is a form. Answer
+            every field at once with `values`.
+        expects:
+          type: string
+          description: |
+            What a `detail`'s answer must look like: any short `text`, an
+            `email`, a `phone` number, or a `choice`. `text` for the other
+            kinds.
+          enum: [text, email, phone, choice]
         channel:
           type: [string, "null"]
           description: Where the shop sent the code, when known.
@@ -1177,7 +2181,9 @@ components:
         expires_at:
           type: string
           format: date-time
-          description: 5 minutes after the request was made.
+          description: |
+            5 minutes after the request was made; for a parked `detail`, when
+            the intent gives up waiting.
         attempts_left:
           type: integer
           minimum: 0
@@ -1189,7 +2195,7 @@ components:
       type: object
       additionalProperties: false
       description: |
-        `input`, and exactly one of `value`, `decline` and `done`.
+        `input`, and exactly one of `value`, `values`, `decline` and `done`.
       required: [input]
       minProperties: 2
       maxProperties: 2
@@ -1206,7 +2212,16 @@ components:
             dots and parentheses are fine. A code is 3 to 12 letters, digits
             or dashes. A `detail`'s answer is a line of at most 300
             characters or, depending on the question, an email address or a
-            phone number; with `options`, one of them (case-insensitive).
+            phone number; with `options`, one of them (case-insensitive); with
+            `choices`, the `id` of one.
+        values:
+          type: object
+          additionalProperties:
+            type: string
+          description: |
+            For a question with `fields`: each field's answer, by its `name`
+            (a `choice` field's by option `id`). Every required field must be
+            there.
         decline:
           type: boolean
           const: true
@@ -1252,7 +2267,7 @@ components:
       properties:
         code:
           type: string
-          examples: [over_max_amount, out_of_stock, merchant_unavailable, login_required]
+          examples: [over_max_amount, out_of_stock, merchant_unavailable, login_required, needs_information, input_expired, limit_exceeded]
         message:
           type: string
 
@@ -1272,7 +2287,7 @@ components:
 
     Balance:
       type: object
-      required: [object, available, held, currency, customer, monthly_limit, spent_this_month]
+      required: [object, available, held, currency, customer, monthly_limit, per_intent_limit, spent_this_month]
       properties:
         object:
           type: string
@@ -1290,6 +2305,12 @@ components:
           description: The customer whose balance this is; `null` for your account's.
         monthly_limit:
           type: [integer, "null"]
+          description: |
+            The most that may leave the balance in a UTC calendar month, in
+            cents, or `null` for no limit. See `Customer.limits`.
+        per_intent_limit:
+          type: [integer, "null"]
+          description: The most one purchase may cost, merchant total plus fee, in cents, or `null` for no limit.
         spent_this_month:
           type: integer
 
@@ -1318,6 +2339,17 @@ components:
                 - too_many_commands
                 - too_many_streams
                 - input_not_waiting
+                - rate_limit_exceeded
+                - too_many_writes
+                - country_unavailable
+                - shop_not_allowed
+                - sign_ins_unavailable
+                - portal_unavailable
+                - live_unavailable
+                - secrets_unavailable
+                - cards_unavailable
+                - answer_on_page
+                - unknown_option
             message:
               type: string
             param:
@@ -1331,7 +2363,9 @@ components:
       description: |
         Posted to your endpoint on every status change. Verify the
         `OpenIntents-Signature` header (`t=<unix>,v1=<hex>`): v1 is
-        HMAC-SHA256 of `"{t}.{raw body}"` keyed with your `whsec_` secret.
+        HMAC-SHA256 of `"{t}.{raw body}"` keyed with your `whsec_` secret. While
+        a secret is being rotated there is one `v1` for each secret that still
+        signs; accept the event if any matches.
       required: [id, type, created_at, data]
       properties:
         id:
@@ -1365,7 +2399,7 @@ components:
 
     Customer:
       type: object
-      required: [id, object, external_id, name, email, metadata, created_at]
+      required: [id, object, external_id, name, email, metadata, limits, created_at]
       properties:
         id:
           type: string
@@ -1383,9 +2417,41 @@ components:
           type: object
           additionalProperties:
             type: string
+        limits:
+          $ref: "#/components/schemas/Limits"
         created_at:
           type: string
           format: date-time
+
+    Limits:
+      type: object
+      description: |
+        What a customer may spend, in cents, counting what leaves their
+        balance: the merchant's total plus the fee. `null` is no limit. An
+        intent that would go over `per_intent`, or take what was spent this UTC
+        calendar month plus what is held for purchases in progress over
+        `monthly`, fails with `limit_exceeded`; nothing is held and no payment
+        link is offered. Your account's own limits are set in the dashboard.
+      required: [per_intent, monthly]
+      properties:
+        per_intent:
+          type: [integer, "null"]
+          minimum: 1
+          maximum: 1000000000
+        monthly:
+          type: [integer, "null"]
+          minimum: 1
+          maximum: 1000000000
+
+    LimitsParams:
+      type: object
+      additionalProperties: false
+      description: A limit left out stays as it is; a number sets it; `null` removes it. Whole numbers from 1 to 1000000000, else `400` naming `per_intent` or `monthly`.
+      properties:
+        per_intent:
+          type: [integer, "null"]
+        monthly:
+          type: [integer, "null"]
 
     CustomerParams:
       type: object
@@ -1403,6 +2469,8 @@ components:
           maxLength: 320
         metadata:
           $ref: "#/components/schemas/MetadataParam"
+        limits:
+          $ref: "#/components/schemas/LimitsParams"
 
     CustomerList:
       type: object
@@ -1655,11 +2723,25 @@ components:
           maximum: 15
           default: 15
           description: Counted from when the session opens. The limit may change.
+        country:
+          type: string
+          pattern: "^[a-z]{2}$"
+          description: See `CreateIntentParams`.
+        end_user_ip:
+          type: string
+          description: See `CreateIntentParams`.
+        webhook_url:
+          type: string
+          format: uri
+          description: |
+            A URL that receives this session's events (`session.*`) as well as
+            your endpoints', signed with a secret made for the session and
+            returned once, as `webhook_secret`, in this create response.
 
     Session:
       type: object
       description: A browser opened on a profile without an intent.
-      required: [id, object, profile, customer, status, test, created_at, expires_at]
+      required: [id, object, profile, customer, status, test, webhook_url, country, country_source, created_at, expires_at]
       properties:
         id:
           type: string
@@ -1684,6 +2766,20 @@ components:
           description: The page it is on now.
         title:
           type: [string, "null"]
+        webhook_url:
+          type: [string, "null"]
+          format: uri
+          description: Where this session's own events go, if it was opened with a `webhook_url`.
+        webhook_secret:
+          type: string
+          description: The secret that signs the `webhook_url` deliveries (`whsec_...`). Only in the create response.
+        country:
+          type: [string, "null"]
+          description: The country its browser goes out from.
+        country_source:
+          oneOf:
+            - $ref: "#/components/schemas/CountrySource"
+            - type: "null"
         created_at:
           type: string
           format: date-time
@@ -1934,3 +3030,693 @@ components:
           format: date-time
         data:
           $ref: "#/components/schemas/Session"
+
+    CountrySource:
+      type: string
+      description: |
+        Why a browser goes out from its `country`: you named it (`explicit`),
+        it is the country the payer last browsed from (`payer`), it was
+        inferred from the `end_user_ip` you gave (`end_user_ip`), from the
+        address the payer's own page was opened from (`request_ip`), or it is
+        the default (`default`). Others may appear.
+      enum: [explicit, payer, end_user_ip, request_ip, default]
+
+    InputChoice:
+      type: object
+      description: One of the choices a question offers, such as a seat, a fare or a delivery slot.
+      required: [id, label]
+      properties:
+        id:
+          type: string
+          maxLength: 40
+          description: "What an answer names. Letters, digits and `_ . : / -`, unique in the question."
+          examples: [seat_12a]
+        label:
+          type: string
+          maxLength: 80
+          description: What the payer reads.
+        description:
+          type: string
+          maxLength: 200
+          description: More to read.
+        price_delta:
+          type: integer
+          description: What choosing it adds to the price (negative, takes off), in minor units of `currency`.
+        currency:
+          type: string
+          description: The currency of `price_delta`; the intent's when it names none.
+
+    InputField:
+      type: object
+      description: One field of a form a question asks the payer to fill in.
+      required: [name, label, type, required]
+      properties:
+        name:
+          type: string
+          maxLength: 40
+          description: The key of this field's answer in `values`. A lowercase letter, then lowercase letters, digits and `_`.
+          examples: [seat_row]
+        label:
+          type: string
+          description: What the payer reads.
+        type:
+          type: string
+          description: |
+            What it takes: a line of `text`, an `email`, a `phone` number, a
+            `date` (`YYYY-MM-DD`), a decimal `number`, or a `choice` of its
+            `options`, answered by the option's `id`.
+          enum: [text, email, phone, date, number, choice]
+        required:
+          type: boolean
+          description: A required field must be answered.
+        options:
+          type: array
+          minItems: 2
+          maxItems: 50
+          description: For a `choice` field, its options. Absent for other types.
+          items:
+            $ref: "#/components/schemas/InputChoice"
+
+    PortalSession:
+      type: object
+      description: |
+        A link to a customer's own page, shown once. Send `url` to the
+        customer only.
+      required: [id, object, customer, country, country_source, url, expires_at]
+      properties:
+        id:
+          type: string
+        object:
+          type: string
+          const: portal_session
+        customer:
+          type: string
+        country:
+          type: string
+          description: The country the customer's browser goes out from.
+        country_source:
+          $ref: "#/components/schemas/CountrySource"
+        url:
+          type: string
+          format: uri
+          description: Works once, until `expires_at`.
+        expires_at:
+          type: string
+          format: date-time
+          description: "When `url` stops working: 30 minutes on, or sooner if `ttl_seconds` is shorter."
+
+    CreatePortalSessionParams:
+      type: object
+      additionalProperties: false
+      properties:
+        return_url:
+          type: string
+          format: uri
+          description: A public `https` URL the page offers a way back to.
+        country:
+          type: string
+          pattern: "^[a-z]{2}$"
+          description: See `CreateIntentParams`.
+        end_user_ip:
+          type: string
+          description: See `CreateIntentParams`.
+        ttl_seconds:
+          type: integer
+          minimum: 60
+          maximum: 86400
+          default: 28800
+          description: How long the customer's session lasts once they open the link.
+
+    SecretKind:
+      type: string
+      description: |
+        What a secret holds, and so which `fields` it takes (all text; a
+        required field must be sent). Fields marked public come back on the
+        secret as `public`; the others are sealed and never come back.
+        - `card`: `token` (required, a payment-method token, `pm_...`, made by
+          the card form, never a card number) and the public `brand`, `last4`,
+          `exp_month`, `exp_year` (all required). A card funds a balance; it
+          is never typed into a shop.
+        - `address`: `recipient_name`, `line1`, `postal_code` (required),
+          `line2`, `phone`; public `city`, `country` (required, two letters),
+          `region`.
+        - `contact`: `given_name`, `family_name`, `email`, `phone`; at least
+          one.
+        - `identity_document`: `number` (required), `full_name`,
+          `date_of_birth`, `expiry` (`YYYY-MM-DD`); public `document_type`
+          (`passport`, `national_id`, `drivers_license`, `residence_permit`)
+          and `issuing_country` (two letters), both required.
+        - `shop_password`: `username`, `password` (required). Needs exactly
+          one shop in `shops`.
+        - `loyalty`: `member_number` (required), `pin`; public `program`
+          (required).
+      enum: [card, address, contact, identity_document, shop_password, loyalty]
+
+    CreateSecretParams:
+      type: object
+      additionalProperties: false
+      required: [kind, label, fields]
+      properties:
+        customer:
+          type: string
+          description: The customer it is for; without it, your account's own.
+        kind:
+          $ref: "#/components/schemas/SecretKind"
+        label:
+          type: string
+          maxLength: 60
+          description: |
+            A name for it, such as `Home` or `Work passport`. It is shown in
+            lists and to agents, so it is not secret: put no value in it.
+        fields:
+          type: object
+          description: The kind's fields (see `SecretKind`), as text, up to 4 KB in all.
+          additionalProperties:
+            type: string
+        shops:
+          type: array
+          items:
+            type: string
+          description: |
+            Shops it may be used on, as domains. Without any, an intent may
+            name the shops itself (see `CreateIntentParams.shops`). A
+            `shop_password` needs exactly one; a `card` takes none.
+        default:
+          type: boolean
+          description: Offer this one first among the payer's secrets of its kind. A purchase that names no `secrets` may use the payer's defaults.
+        expires_at:
+          type: string
+          format: date-time
+          description: After this time it is no longer offered and is deleted.
+
+    Secret:
+      type: object
+      description: |
+        A stored secret as you may see it: never its values. The `mask` is
+        what a person may be shown to recognise it (`Visa ••4242`), and
+        `public` holds the few fields its kind keeps in the clear.
+      required: [id, object, customer, kind, label, mask, public, shops, default, mode, entered_by, version, created_at, updated_at, expires_at, last_used_at]
+      properties:
+        id:
+          type: string
+          examples: [sec_9c1b7a40d3e85f26]
+        object:
+          type: string
+          const: secret
+        customer:
+          type: [string, "null"]
+          description: The customer it belongs to; `null` for your account's own.
+        kind:
+          $ref: "#/components/schemas/SecretKind"
+        label:
+          type: string
+        mask:
+          type: string
+        public:
+          type: object
+          additionalProperties:
+            type: string
+        shops:
+          type: array
+          items:
+            type: string
+        default:
+          type: boolean
+        mode:
+          type: string
+          enum: [test, live]
+          description: The mode of the key that wrote it. A key sees only secrets of its own mode.
+        entered_by:
+          type: string
+          description: "`developer` through this API, `payer` on their own page (see `POST /customers/{id}/secret_requests`)."
+          enum: [developer, payer]
+        version:
+          type: integer
+          description: Goes up each time it is replaced.
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: [string, "null"]
+          format: date-time
+        last_used_at:
+          type: [string, "null"]
+          format: date-time
+
+    SecretList:
+      type: object
+      required: [object, data]
+      properties:
+        object:
+          type: string
+          const: list
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Secret"
+        next_cursor:
+          type: [string, "null"]
+
+    SecretUse:
+      type: object
+      description: One row of a secret's history. Never a value or a mask.
+      required: [id, object, secret, kind, action, actor, outcome, field_names, at]
+      properties:
+        id:
+          type: string
+          examples: [aud_5b0e7d21c4a98f36]
+        object:
+          type: string
+          const: secret_use
+        secret:
+          type: string
+        kind:
+          $ref: "#/components/schemas/SecretKind"
+        action:
+          type: string
+          description: |
+            `create`, `replace`, `delete`, `expire` (it passed its
+            `expires_at` and its values were taken away), `fill` (a value was
+            typed into a shop), `fund` (a card funded a balance) or `refuse`
+            (a check turned a use away). Others may appear.
+        actor:
+          type: string
+          description: "`worker`, `api`, `payer`, `developer` or `system`."
+        outcome:
+          type: string
+          enum: [ok, refused]
+        reason:
+          type: [string, "null"]
+          description: "Why a use was refused: `shop_not_allowed`, `expired` or `wrong_use`. Others may appear."
+        field:
+          type: [string, "null"]
+          description: The field a fill or refusal was about.
+        field_names:
+          type: array
+          items:
+            type: string
+          description: The names of the fields a create or replace set.
+        shop:
+          type: [string, "null"]
+          description: The domain a value was typed on, or asked to be.
+        intent:
+          type: [string, "null"]
+        at:
+          type: string
+          format: date-time
+
+    SecretUseList:
+      type: object
+      required: [object, data]
+      properties:
+        object:
+          type: string
+          const: list
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/SecretUse"
+        next_cursor:
+          type: [string, "null"]
+
+    CreateSecretRequestParams:
+      type: object
+      additionalProperties: false
+      required: [kinds]
+      properties:
+        kinds:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/SecretKind"
+          description: The kinds of secret the page asks for.
+        return_url:
+          type: string
+          format: uri
+          description: A public `https` URL the page offers a way back to.
+        ttl_seconds:
+          type: integer
+          minimum: 60
+          maximum: 604800
+          default: 86400
+          description: How long the link works.
+
+    SecretRequestCreated:
+      type: object
+      description: A request for a customer's secrets, with the link to send them.
+      required: [id, object, customer, kinds, url, expires_at]
+      properties:
+        id:
+          type: string
+          examples: [sr_3d71c0b8a2e94f65]
+        object:
+          type: string
+          const: secret_request
+        customer:
+          type: string
+        kinds:
+          type: array
+          items:
+            $ref: "#/components/schemas/SecretKind"
+        url:
+          type: string
+          format: uri
+          description: For the customer only. Works once, until `expires_at`.
+        expires_at:
+          type: string
+          format: date-time
+
+    SecretRequest:
+      type: object
+      description: |
+        Where a request for a customer's secrets stands. It is also the `data`
+        of the `secret_request.completed` webhook.
+      required: [id, object, customer, mode, kinds, state, expires_at, completed_at, secrets]
+      properties:
+        id:
+          type: string
+        object:
+          type: string
+          const: secret_request
+        customer:
+          type: string
+        mode:
+          type: string
+          enum: [test, live]
+        kinds:
+          type: array
+          items:
+            $ref: "#/components/schemas/SecretKind"
+        state:
+          type: string
+          description: "`pending` until the customer fills it in, then `done`; `expired` if they did not in time."
+          enum: [pending, done, expired]
+        expires_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: [string, "null"]
+          format: date-time
+        secrets:
+          type: array
+          items:
+            type: string
+          description: The handles (`sec_...`) of the secrets the customer made. Read each with `GET /secrets/{id}`.
+
+    LiveLink:
+      type: object
+      description: A link to a session's live view, shown once. Whoever holds `url` can drive the session.
+      required: [object, session, url, expires_at]
+      properties:
+        object:
+          type: string
+          const: live_link
+        session:
+          type: string
+        url:
+          type: string
+          format: uri
+        expires_at:
+          type: string
+          format: date-time
+          description: 10 minutes after it was made.
+
+    CreateSignInParams:
+      type: object
+      additionalProperties: false
+      required: [shop_url]
+      properties:
+        shop_url:
+          type: string
+          format: uri
+          description: A public `https` URL on the shop, on the default port. The page opens there.
+        customer:
+          type: string
+          description: Sign this customer in; without it, your account's own profile.
+        country:
+          type: string
+          pattern: "^[a-z]{2}$"
+          description: See `CreateIntentParams`.
+        end_user_ip:
+          type: string
+          description: See `CreateIntentParams`.
+        return_url:
+          type: string
+          format: uri
+          description: A public `https` URL the page offers a way back to.
+
+    SignIn:
+      type: object
+      description: |
+        A link where a payer signs in to a shop with no intent attached. It is
+        also the `data` of the `sign_in.*` webhooks, without `url`.
+      required: [id, object, status, customer, shop, country, country_source, return_url, test, created_at, expires_at, ended_at]
+      properties:
+        id:
+          type: string
+          examples: [sgn_6a20e4b19c7d3f58]
+        object:
+          type: string
+          const: sign_in
+        status:
+          type: string
+          description: |
+            `open` until the payer opens it, `active` while their browser is
+            open, then `done` (they signed in), `declined`, `expired` or
+            `cancelled`. Others may appear.
+          enum: [open, active, done, declined, expired, cancelled]
+        customer:
+          type: [string, "null"]
+        shop:
+          type: string
+          description: The shop's domain, such as `amazon.com`.
+        country:
+          type: [string, "null"]
+          description: The country the payer's browser goes out from.
+        country_source:
+          oneOf:
+            - $ref: "#/components/schemas/CountrySource"
+            - type: "null"
+        return_url:
+          type: [string, "null"]
+          format: uri
+        url:
+          type: string
+          format: uri
+          description: The page for the payer only. Not in webhooks.
+        test:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        ended_at:
+          type: [string, "null"]
+          format: date-time
+
+    WebhookEndpoint:
+      type: object
+      required: [id, object, url, events, disabled, created_at]
+      properties:
+        id:
+          type: string
+          examples: [we_4c82a1d09b7e3f56]
+        object:
+          type: string
+          const: webhook_endpoint
+        url:
+          type: string
+          format: uri
+        events:
+          type: array
+          items:
+            type: string
+          description: "The event types it receives. Empty: every intent event."
+        disabled:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        previous_secret_expires_at:
+          type: string
+          format: date-time
+          description: Present while the secret before the last rotation still signs as well.
+        secret:
+          type: string
+          description: The signing secret (`whsec_...`). Only in the create and rotate responses.
+
+    CreateWebhookEndpointParams:
+      type: object
+      additionalProperties: false
+      required: [url]
+      properties:
+        url:
+          type: string
+          format: uri
+          maxLength: 2048
+          description: "`https` on the default port, resolving to a public address."
+        events:
+          type: array
+          items:
+            type: string
+          description: |
+            Event types to receive, such as `intent.completed` or
+            `sign_in.completed`. Without any, every intent event. An unknown
+            type is `400` naming `events`.
+
+    UpdateWebhookEndpointParams:
+      type: object
+      additionalProperties: false
+      properties:
+        url:
+          type: string
+          format: uri
+          maxLength: 2048
+        events:
+          type: array
+          items:
+            type: string
+          description: Replaces the list. `[]` is every intent event.
+        disabled:
+          type: boolean
+
+    WebhookEndpointList:
+      type: object
+      required: [object, data]
+      properties:
+        object:
+          type: string
+          const: list
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/WebhookEndpoint"
+        next_cursor:
+          type: [string, "null"]
+
+    WebhookDelivery:
+      type: object
+      description: One send of an event to an endpoint.
+      required: [id, object, endpoint, event_id, event_type, status, attempts, response_code, error, created_at, delivered_at, redelivery_of]
+      properties:
+        id:
+          type: string
+          examples: [whd_8f2c41d0a9e7b3f15c62d1aa]
+        object:
+          type: string
+          const: webhook_delivery
+        endpoint:
+          type: [string, "null"]
+        event_id:
+          type: string
+        event_type:
+          type: string
+        status:
+          type: string
+          description: "`pending` while it is being tried (and retried), then `delivered` or `failed`."
+          enum: [pending, delivered, failed]
+        attempts:
+          type: integer
+        response_code:
+          type: [integer, "null"]
+          description: What your receiver answered on the last attempt, if it answered.
+        error:
+          type: [string, "null"]
+          description: Why the last attempt failed, if it got no answer.
+        created_at:
+          type: string
+          format: date-time
+        next_attempt_at:
+          type: string
+          format: date-time
+          description: The next attempt. Only while `pending`.
+        delivered_at:
+          type: [string, "null"]
+          format: date-time
+        redelivery_of:
+          type: [string, "null"]
+          description: The delivery this one sends again.
+
+    WebhookDeliveryList:
+      type: object
+      required: [object, data]
+      properties:
+        object:
+          type: string
+          const: list
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/WebhookDelivery"
+        next_cursor:
+          type: [string, "null"]
+
+    SignInWebhookEvent:
+      type: object
+      description: |
+        A sign-in link ended. Sent only to endpoints that list the type.
+        `sign_in.completed`: the payer signed in. `sign_in.expired`: the link
+        ran out. `data` is the `SignIn` without `url`.
+      required: [id, type, created_at, data]
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          enum:
+            - sign_in.completed
+            - sign_in.expired
+        created_at:
+          type: string
+          format: date-time
+        data:
+          $ref: "#/components/schemas/SignIn"
+
+    SecretRequestWebhookEvent:
+      type: object
+      description: |
+        A customer filled in a secret request. Sent only to endpoints that
+        list the type. `data` holds the handles of the secrets made, never a
+        value.
+      required: [id, type, created_at, data]
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          enum:
+            - secret_request.completed
+        created_at:
+          type: string
+          format: date-time
+        data:
+          $ref: "#/components/schemas/SecretRequest"
+
+    WebhookTestEvent:
+      type: object
+      description: |
+        What `POST /webhook_endpoints/{id}/test` sends, to that endpoint
+        alone. It is not an event type you can subscribe to.
+      required: [id, type, created_at, data]
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          const: webhook_endpoint.test
+        created_at:
+          type: string
+          format: date-time
+        data:
+          type: object
+          required: [endpoint, message]
+          properties:
+            endpoint:
+              type: string
+            message:
+              type: string
