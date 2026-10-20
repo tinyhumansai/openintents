@@ -35,7 +35,7 @@ export interface CreateIntentParams {
    * The payer pays the shop themselves (default `false`). At the payment step
    * the intent waits in `requires_input` with a `payment` request whose
    * `image_url` is a picture of the shop's payment code (a UPI QR code); answer
-   * `done` once they paid, or decline. Only the fee comes from your balance.
+   * `done` once they paid, or decline. No wallet is used, and the fee is waived for now.
    * Live keys only; where it is not available for your key, creating the
    * intent is a 503 `pay_at_shop_unavailable`.
    */

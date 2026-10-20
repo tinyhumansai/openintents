@@ -76,8 +76,8 @@ pub struct CreateIntent {
     /// step the intent waits in `requires_input` with an
     /// [`InputKind::Payment`] request whose `image_url` is a picture of the
     /// shop's payment code (a UPI QR code); answer with
-    /// [`AnswerInput::done`] once they paid, or decline. Only the fee comes
-    /// from your balance. Live keys only; where it is not available for your
+    /// [`AnswerInput::done`] once they paid, or decline. No wallet is used
+    /// and the fee is waived for now. Live keys only; where it is not available for your
     /// key, creating the intent is a 503 `pay_at_shop_unavailable`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pay_at_shop: Option<bool>,
