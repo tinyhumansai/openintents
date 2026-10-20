@@ -1,8 +1,12 @@
 name: Release
 
 # Manual: tick the SDKs to publish and pick the bump. The prepare job bumps
-# every SDK version together (sdk/bump-versions.mjs), commits to main and tags
-# vX.Y.Z; each selected SDK is then published from that commit.
+# every SDK version together (sdk/bump-versions.mjs), refuses a version a
+# selected registry already has, commits to main and tags vX.Y.Z; each selected
+# SDK is then published from that commit, and with all three selected the
+# verify job checks that npm, PyPI and crates.io report the one version.
+# `current` publishes the version the files already carry (to catch a registry
+# up, or to retry one publish that failed: untick the ones that went through).
 # Secrets: NPM_TOKEN, CARGO_REGISTRY_TOKEN (repository), PYPI_API_TOKEN (on the
 # "Production" environment, which only main can deploy to).
 
@@ -12,20 +16,20 @@ on:
       typescript:
         description: Publish the TypeScript SDK + CLI to npm
         type: boolean
-        default: false
+        default: true
       python:
         description: Publish the Python SDK to PyPI
         type: boolean
-        default: false
+        default: true
       rust:
-        description: Publish the Rust SDK to crates.io
+        description: Publish the Rust SDK + CLI to crates.io
         type: boolean
-        default: false
+        default: true
       bump:
-        description: Version bump
+        description: Version bump (current = publish the version the files already carry)
         type: choice
         default: patch
-        options: [patch, minor, major]
+        options: [patch, minor, major, current]
 
 concurrency:
   group: release
@@ -55,6 +59,23 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - id: bump
         run: echo "version=$(node sdk/bump-versions.mjs ${{ inputs.bump }})" >> "$GITHUB_OUTPUT"
+      - name: Check every file is at the new version
+        run: node sdk/bump-versions.mjs --check "${{ steps.bump.outputs.version }}"
+      - name: Refuse a version a selected registry already has
+        env:
+          VERSION: ${{ steps.bump.outputs.version }}
+        run: |
+          taken=0
+          if [ "${{ inputs.typescript }}" = "true" ] && [ -n "$(npm view "@tinyhumansai/openintents@$VERSION" version 2>/dev/null)" ]; then
+            echo "::error::npm already has @tinyhumansai/openintents $VERSION"; taken=1
+          fi
+          if [ "${{ inputs.python }}" = "true" ] && [ "$(curl -s -o /dev/null -w '%{http_code}' "https://pypi.org/pypi/openintents/$VERSION/json")" = "200" ]; then
+            echo "::error::PyPI already has openintents $VERSION"; taken=1
+          fi
+          if [ "${{ inputs.rust }}" = "true" ] && [ "$(curl -s -o /dev/null -w '%{http_code}' -A 'openintents-release (https://github.com/tinyhumansai/openintents)' "https://crates.io/api/v1/crates/openintents/$VERSION")" = "200" ]; then
+            echo "::error::crates.io already has openintents $VERSION"; taken=1
+          fi
+          exit $taken
       - name: Refresh Cargo.lock
         run: cargo update -p openintents --manifest-path sdk/rust/Cargo.toml
       - id: commit
@@ -63,9 +84,14 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -am "chore(release): v$VERSION"
-          git tag "v$VERSION"
-          git push origin HEAD:main "v$VERSION"
+          if ! git diff --quiet; then
+            git commit -am "chore(release): v$VERSION"
+            git push origin HEAD:main
+          fi
+          if ! git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null; then
+            git tag "v$VERSION"
+            git push origin "v$VERSION"
+          fi
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
   npm:
@@ -128,9 +154,38 @@ jobs:
         with:
           ref: ${{ needs.prepare.outputs.sha }}
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo test --locked
+      - run: cargo test --locked --features cli
         working-directory: sdk/rust
       - run: cargo publish --locked
         working-directory: sdk/rust
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+  verify:
+    name: One version on every registry
+    needs: [prepare, npm, pypi, crates]
+    if: ${{ inputs.typescript && inputs.python && inputs.rust }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: astral-sh/setup-uv@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - name: npm view, pip index versions and cargo search show the new version
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          # Registries take a little while to show a new release.
+          for attempt in $(seq 1 20); do
+            npm_v=$(npm view @tinyhumansai/openintents version 2>/dev/null || true)
+            pypi_v=$(uvx pip index versions openintents 2>/dev/null | sed -n '1s/^openintents (\(.*\)).*/\1/p' || true)
+            crates_v=$(cargo search openintents --limit 5 2>/dev/null | sed -n 's/^openintents = "\([^"]*\)".*/\1/p' || true)
+            echo "attempt $attempt: npm=$npm_v pypi=$pypi_v crates.io=$crates_v (want $VERSION)"
+            if [ "$npm_v" = "$VERSION" ] && [ "$pypi_v" = "$VERSION" ] && [ "$crates_v" = "$VERSION" ]; then
+              exit 0
+            fi
+            sleep 30
+          done
+          echo "::error::The registries do not all report $VERSION"
+          exit 1

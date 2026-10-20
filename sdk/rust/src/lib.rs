@@ -32,10 +32,12 @@ mod error;
 mod sse;
 mod stream;
 pub mod types;
+pub mod types_v1;
 pub mod webhooks;
 
 pub use client::{Client, ClientBuilder, WaitOptions, DEFAULT_BASE_URL};
 pub use error::{Error, Result};
 pub use stream::EventStream;
 pub use types::*;
+pub use types_v1::*;
 pub use webhooks::{sign_webhook, verify_webhook};

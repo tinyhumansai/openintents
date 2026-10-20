@@ -51,3 +51,14 @@ def test_shared_test_vector():
     assert sign_webhook(b'{"id":"evt_1"}', "whsec_x", t=1_700_000_000) == (
         "t=1700000000,v1=366e40c480fe3a9e6a03609dca079cea86d77ae82d5a56b5348208247317a8d1"
     )
+
+
+def test_rotation_header_with_a_v1_for_each_secret_matches_either_secret():
+    t = int(time.time())
+    new = sign_webhook(BODY, "whsec_new", t=t).split(",")[1]
+    old = sign_webhook(BODY, "whsec_old", t=t).split(",")[1]
+    header = f"t={t},{new},{old}"
+    assert verify_webhook(BODY, header, "whsec_new")["type"] == "intent.completed"
+    assert verify_webhook(BODY, header, "whsec_old")["type"] == "intent.completed"
+    with pytest.raises(WebhookVerificationError, match="mismatch"):
+        verify_webhook(BODY, header, "whsec_other")

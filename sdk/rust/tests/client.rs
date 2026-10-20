@@ -219,8 +219,8 @@ async fn wait_returns_the_input_request() {
 #[test]
 fn a_detail_with_options_parses_and_round_trips() {
     let detail = json!({ "id": "inp_2", "kind": "detail", "shop": "flipkart.com",
-        "prompt": "Which size would you like?", "options": ["S", "M", "L"], "channel": null,
-        "length": null, "url": "https://openintents.io/input/inp_2", "expires_at": "x", "attempts_left": 2 });
+        "prompt": "Which size would you like?", "options": ["S", "M", "L"], "choices": [],
+        "fields": [], "expects": "text", "channel": null, "length": null, "url": "https://openintents.io/input/inp_2", "expires_at": "x", "attempts_left": 2 });
     let mut needs_input = intent("requires_input");
     needs_input["input_request"] = detail.clone();
     let it: Intent = serde_json::from_value(needs_input).unwrap();
@@ -264,6 +264,15 @@ fn create_sends_sign_in_agent_and_hint() {
     assert_eq!(
         serde_json::to_value(params).unwrap(),
         json!({ "intent": "a lamp", "sign_in_agent": false, "sign_in_hint": { "phone": "+91 98765 43210" } })
+    );
+}
+
+#[test]
+fn create_sends_pay_at_shop() {
+    let params = CreateIntent::new("a lamp").pay_at_shop(true);
+    assert_eq!(
+        serde_json::to_value(params).unwrap(),
+        json!({ "intent": "a lamp", "pay_at_shop": true })
     );
 }
 

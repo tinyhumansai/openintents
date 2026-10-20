@@ -22,6 +22,24 @@ IntentStatus = Literal[
 #: Statuses an intent never leaves.
 FINAL_STATUSES: frozenset[str] = frozenset({"completed", "failed", "cancelled"})
 
+#: Why a browser goes out from its country: you named it ("explicit"), it is
+#: the country the payer last browsed from ("payer"), it was inferred from the
+#: end_user_ip you gave ("end_user_ip") or from the address the payer's own page
+#: was opened from ("request_ip"), or it is the default ("default"). Others may
+#: appear.
+CountrySource = Literal["explicit", "payer", "end_user_ip", "request_ip", "default"]
+
+
+class RateLimit(TypedDict):
+    """Your key's limit, from the RateLimit-* headers of a response."""
+
+    #: Requests a minute your key may make; also the burst.
+    limit: int
+    #: Requests left in your bucket.
+    remaining: int
+    #: Seconds until your bucket is full again.
+    reset: int
+
 
 class PaymentRequest(TypedDict, total=False):
     reason: Literal["insufficient_balance", "over_limit", "requested"]
@@ -64,7 +82,43 @@ class SignInHint(TypedDict, total=False):
 #: wants for the order, a size or a colour. A detail's prompt is the agent's
 #: own question (never asking for passwords, codes, PINs, card or bank details
 #: or ID numbers), and the answer goes back to the agent.
-InputKind = Literal["phone", "email", "code", "approval", "detail"]
+#: A "sensitive" question wants an identity document: the payer answers it on
+#: its url only (anything else but a decline is a 422 answer_on_page).
+#: A "payment" asks the payer to pay the shop themselves (pay_at_shop): show
+#: them image_url, a picture of the shop's payment code to scan with a UPI
+#: app, and answer done=True once they paid (it has no value), or decline.
+InputKind = Literal["phone", "email", "code", "approval", "detail", "sensitive", "payment"]
+
+
+class _InputChoiceRequired(TypedDict):
+    #: What an answer names; unique in the question.
+    id: str
+    label: str
+
+
+class InputChoice(_InputChoiceRequired, total=False):
+    """One of the choices a question offers, such as a seat, a fare or a delivery slot."""
+
+    description: str
+    #: What choosing it adds to the price (negative, takes off), in minor units of currency.
+    price_delta: int
+    currency: str
+
+
+#: What a field of a form takes.
+InputFieldType = Literal["text", "email", "phone", "date", "number", "choice"]
+
+
+class InputField(TypedDict, total=False):
+    """One field of a form a question asks the payer to fill in."""
+
+    #: The key of this field's answer in values.
+    name: str
+    label: str
+    type: InputFieldType
+    required: bool
+    #: For a "choice" field, its options; answer with an option's id.
+    options: list[InputChoice]
 
 
 class InputRequest(TypedDict, total=False):
@@ -87,12 +141,24 @@ class InputRequest(TypedDict, total=False):
     #: A "detail"'s choices (at most 8), empty otherwise. When not empty, answer
     #: with one of them (case-insensitive): anything else is a 400.
     options: list[str]
+    #: A "detail" that offers choices with ids (2 to 50), empty otherwise. Answer
+    #: with the id of one as value=; any other is a 422 unknown_option.
+    choices: list[InputChoice]
+    #: A "detail" that is a form (at most 10), empty otherwise. Answer every
+    #: field at once with values=.
+    fields: list[InputField]
+    #: What a plain answer must look like.
+    expects: Literal["text", "email", "phone", "choice"]
     #: Where the shop sent the code, when known.
     channel: Literal["sms", "email", "call", "app"] | None
     #: How many characters the code has, when the page says.
     length: int | None
     #: A page where the payer types the answer themselves. Theirs only: whoever has it can answer.
     url: str
+    #: A "payment"'s picture (JPEG) of the shop's payment code, for the payer to
+    #: scan; served only while the request waits, absent for other kinds. Like
+    #: url, whoever has it can see it.
+    image_url: str
     expires_at: str
     #: How many more times the agent may ask for this kind in this purchase, after this one.
     attempts_left: int
@@ -132,6 +198,17 @@ class Intent(TypedDict, total=False):
     payment: PaymentRequest | None
     sign_in: SignInRequest | None
     input_request: InputRequest | None
+    #: Where this intent's own events go, if it was created with a webhook_url.
+    webhook_url: str | None
+    #: Signs the webhook_url deliveries ("whsec_..."). Only in the create response.
+    webhook_secret: str
+    #: The secrets the purchase may use, as given (never a value); None when none were named.
+    secrets: list[str] | None
+    #: The shops you let the purchase fill secrets on.
+    shops: list[str]
+    #: The country its browser goes out from.
+    country: str | None
+    country_source: CountrySource | None
     result: Receipt | None
     error: IntentError | None
     test: bool
@@ -151,8 +228,25 @@ class Balance(TypedDict, total=False):
     held: int
     currency: str
     customer: str | None
+    #: The most that may leave the balance in a UTC calendar month, in cents; None for no limit.
     monthly_limit: int | None
+    #: The most one purchase may cost, merchant total plus fee, in cents; None for no limit.
+    per_intent_limit: int | None
     spent_this_month: int
+
+
+class Limits(TypedDict):
+    """What a customer may spend, in cents, counting the merchant's total plus the fee. None is no limit."""
+
+    per_intent: int | None
+    monthly: int | None
+
+
+class LimitsParams(TypedDict, total=False):
+    """Limits to set: one left out stays; a number sets it; None removes it (1 to 1000000000)."""
+
+    per_intent: int | None
+    monthly: int | None
 
 
 class Customer(TypedDict, total=False):
@@ -164,6 +258,7 @@ class Customer(TypedDict, total=False):
     name: str | None
     email: str | None
     metadata: dict[str, str]
+    limits: Limits
     created_at: str
 
 
@@ -266,6 +361,13 @@ class Session(TypedDict, total=False):
     opened_at: str | None
     expires_at: str
     closed_at: str | None
+    #: The country its browser goes out from.
+    country: str | None
+    country_source: CountrySource | None
+    #: Where this session's own events go, if it was opened with a webhook_url.
+    webhook_url: str | None
+    #: Signs the webhook_url deliveries ("whsec_..."). Only in the create response.
+    webhook_secret: str
     #: "released", "idle", "timed_out", "data_limit", "browser_lost" or "error"; others may appear.
     close_reason: str | None
 
@@ -362,6 +464,12 @@ IntentWebhookEventType = Literal[
 #: Sent only to endpoints subscribed to session.* types.
 SessionWebhookEventType = Literal["session.opened", "session.closed", "session.failed"]
 
+#: Sent only to endpoints subscribed to sign_in.* types.
+SignInWebhookEventType = Literal["sign_in.completed", "sign_in.expired"]
+
+#: Sent only to endpoints subscribed to it.
+SecretRequestWebhookEventType = Literal["secret_request.completed"]
+
 
 class IntentWebhookEvent(TypedDict):
     id: str
@@ -377,5 +485,234 @@ class SessionWebhookEvent(TypedDict):
     data: Session
 
 
+class SignInWebhookEvent(TypedDict):
+    """A sign-in link ended. data is the sign-in without its url."""
+
+    id: str
+    type: SignInWebhookEventType
+    created_at: str
+    data: SignIn
+
+
+class SecretRequestWebhookEvent(TypedDict):
+    """A customer filled in a secret request. data holds the handles of the secrets made, never a value."""
+
+    id: str
+    type: SecretRequestWebhookEventType
+    created_at: str
+    data: SecretRequest
+
+
+class WebhookTestEventData(TypedDict):
+    endpoint: str
+    message: str
+
+
+class WebhookTestEvent(TypedDict):
+    """What webhook_endpoints.test sends, to that endpoint alone. Not a type you can subscribe to."""
+
+    id: str
+    type: Literal["webhook_endpoint.test"]
+    created_at: str
+    data: WebhookTestEventData
+
+
 #: Dispatch on "type" before reading "data".
-WebhookEvent = IntentWebhookEvent | SessionWebhookEvent
+WebhookEvent = (
+    IntentWebhookEvent
+    | SessionWebhookEvent
+    | SignInWebhookEvent
+    | SecretRequestWebhookEvent
+    | WebhookTestEvent
+)
+
+
+class PortalSession(TypedDict):
+    """A link to a customer's own page, shown once. Send url to the customer only."""
+
+    id: str
+    object: Literal["portal_session"]
+    customer: str
+    #: The country the customer's browser goes out from.
+    country: str
+    country_source: CountrySource
+    #: Works once, until expires_at.
+    url: str
+    expires_at: str
+
+
+#: What a secret holds, and so which fields it takes.
+SecretKind = Literal["card", "address", "contact", "identity_document", "shop_password", "loyalty"]
+
+
+class Secret(TypedDict):
+    """A stored secret as you may see it: never its values."""
+
+    id: str
+    object: Literal["secret"]
+    #: The customer it belongs to; None for your account's own.
+    customer: str | None
+    kind: SecretKind
+    label: str
+    #: What a person may be shown to recognise it, such as "Visa ••4242".
+    mask: str
+    #: The few fields its kind keeps in the clear.
+    public: dict[str, str]
+    shops: list[str]
+    default: bool
+    #: The mode of the key that wrote it. A key sees only secrets of its own mode.
+    mode: Literal["test", "live"]
+    #: "developer" through this API, "payer" on their own page.
+    entered_by: Literal["developer", "payer"]
+    #: Goes up each time it is replaced.
+    version: int
+    created_at: str
+    updated_at: str
+    expires_at: str | None
+    last_used_at: str | None
+
+
+class SecretList(TypedDict, total=False):
+    object: Literal["list"]
+    data: list[Secret]
+    next_cursor: str | None
+
+
+class SecretUse(TypedDict, total=False):
+    """One row of a secret's history. Never a value or a mask."""
+
+    id: str
+    object: Literal["secret_use"]
+    secret: str
+    kind: SecretKind
+    #: "create", "replace", "delete", "expire", "fill", "fund" or "refuse"; others may appear.
+    action: str
+    #: "worker", "api", "payer", "developer" or "system".
+    actor: str
+    outcome: Literal["ok", "refused"]
+    #: Why a use was refused: "shop_not_allowed", "expired" or "wrong_use".
+    reason: str | None
+    field: str | None
+    #: The names of the fields a create or replace set.
+    field_names: list[str]
+    shop: str | None
+    intent: str | None
+    at: str
+
+
+class SecretUseList(TypedDict, total=False):
+    object: Literal["list"]
+    data: list[SecretUse]
+    next_cursor: str | None
+
+
+class SecretRequestCreated(TypedDict):
+    """A request for a customer's secrets, with the link to send them."""
+
+    id: str
+    object: Literal["secret_request"]
+    customer: str
+    kinds: list[SecretKind]
+    #: For the customer only. Works once, until expires_at.
+    url: str
+    expires_at: str
+
+
+class SecretRequest(TypedDict):
+    """Where a request for a customer's secrets stands; also the data of secret_request.completed."""
+
+    id: str
+    object: Literal["secret_request"]
+    customer: str
+    mode: Literal["test", "live"]
+    kinds: list[SecretKind]
+    #: "pending" until the customer fills it in, then "done"; "expired" if they did not in time.
+    state: Literal["pending", "done", "expired"]
+    expires_at: str
+    completed_at: str | None
+    #: The handles ("sec_...") of the secrets the customer made.
+    secrets: list[str]
+
+
+class LiveLink(TypedDict):
+    """A link to a session's live view, shown once. Whoever holds url can drive the session."""
+
+    object: Literal["live_link"]
+    session: str
+    url: str
+    #: 10 minutes after it was made.
+    expires_at: str
+
+
+#: "open" until the payer opens it, "active" while their browser is open, then
+#: "done" (they signed in), "declined", "expired" or "cancelled".
+SignInStatus = Literal["open", "active", "done", "declined", "expired", "cancelled"]
+
+
+class SignIn(TypedDict, total=False):
+    """A link where a payer signs in to a shop with no intent attached."""
+
+    id: str
+    object: Literal["sign_in"]
+    status: SignInStatus
+    customer: str | None
+    #: The shop's domain, such as "amazon.com".
+    shop: str
+    country: str | None
+    country_source: CountrySource | None
+    return_url: str | None
+    #: The page for the payer only. Not in webhooks.
+    url: str
+    test: bool
+    created_at: str
+    expires_at: str
+    ended_at: str | None
+
+
+class WebhookEndpoint(TypedDict, total=False):
+    id: str
+    object: Literal["webhook_endpoint"]
+    url: str
+    #: The event types it receives. Empty: every intent event.
+    events: list[str]
+    disabled: bool
+    created_at: str
+    #: Present while the secret before the last rotation still signs as well.
+    previous_secret_expires_at: str
+    #: The signing secret ("whsec_..."). Only in the create and rotate responses.
+    secret: str
+
+
+class WebhookEndpointList(TypedDict, total=False):
+    object: Literal["list"]
+    data: list[WebhookEndpoint]
+    next_cursor: str | None
+
+
+class WebhookDelivery(TypedDict, total=False):
+    """One send of an event to an endpoint."""
+
+    id: str
+    object: Literal["webhook_delivery"]
+    endpoint: str | None
+    event_id: str
+    event_type: str
+    #: "pending" while it is being tried (and retried), then "delivered" or "failed".
+    status: Literal["pending", "delivered", "failed"]
+    attempts: int
+    #: What your receiver answered on the last attempt, if it answered.
+    response_code: int | None
+    #: Why the last attempt failed, if it got no answer.
+    error: str | None
+    created_at: str
+    #: The next attempt. Only while pending.
+    next_attempt_at: str
+    delivered_at: str | None
+    #: The delivery this one sends again.
+    redelivery_of: str | None
+
+
+class WebhookDeliveryList(TypedDict, total=False):
+    object: Literal["list"]
+    data: list[WebhookDelivery]
+    next_cursor: str | None

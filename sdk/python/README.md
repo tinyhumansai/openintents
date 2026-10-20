@@ -84,6 +84,51 @@ oi.sessions.release(session["id"])  # the profile keeps the sign-in
 Also `oi.sessions.list/list_all/get/get_command/list_events` and
 `oi.profiles.list/list_all/create/get/forget`.
 
+## Country, waiting and forms
+
+`country` (ISO 3166-1 alpha-2, lowercase) or `end_user_ip` on
+`intents.create`, `sessions.create`, `sign_ins.create` and
+`customers.create_portal_session` picks the country the browser goes out
+from; the object says which in `country` and `country_source`. Pass
+`wait=30` to `intents.create` or `intents.get` to have the API hold the
+request up to 50 seconds until the intent finishes or pauses.
+
+A question in `input_request` can offer `choices` (answer with one's `id`) or
+ask a form of `fields` (answer with `values={"name": "value"}`); `expects`
+says what a plain answer looks like. A `sensitive` question (an identity
+document) is answered only on `input_request["url"]`. With
+`pay_at_shop=True` on create (live keys), the payer pays the shop themselves:
+a `payment` question shows the shop's payment code at
+`input_request["image_url"]`, answered with `done=True` once they paid.
+
+## Secrets, sign-ins and live links
+
+```python
+card = oi.secrets.create(kind="card", label="Work Visa", fields={"number": "4242424242424242"}, shops=["airfrance.com"])
+oi.intents.create("book the 7am flight", secrets=[card["id"]], shops=["airfrance.com"])
+
+ask = oi.customers.create_secret_request("cus_4b81d0", kinds=["identity_document"])  # send ask["url"]
+sign_in = oi.sign_ins.create(shop_url="https://www.amazon.com/", customer="cus_4b81d0")  # send sign_in["url"]
+portal = oi.customers.create_portal_session("cus_4b81d0", ttl_seconds=1800)  # send portal["url"]
+live = oi.sessions.create_live_link(session["id"])  # live["url"] drives the session, never to pay
+```
+
+Secrets are write-only: they come back as a label, a mask and public fields,
+never their values (`oi.secrets.list/get/replace/delete/uses`).
+
+## Webhook endpoints
+
+```python
+endpoint = oi.webhook_endpoints.create(url="https://example.com/hooks", events=["intent.completed", "sign_in.completed"])
+# endpoint["secret"] is shown here only. Also: list/list_all/get/update/delete.
+oi.webhook_endpoints.rotate_secret(endpoint["id"])  # the old secret signs for 24 more hours
+oi.webhook_endpoints.test(endpoint["id"])  # sends webhook_endpoint.test to it alone
+oi.webhook_endpoints.list_deliveries(endpoint["id"])
+```
+
+A 429 `OpenIntentsError` carries `retry_after` and `rate_limit` (`limit`,
+`remaining`, `reset`, from the `RateLimit-*` headers).
+
 ## Webhooks
 
 ```python

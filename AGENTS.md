@@ -32,6 +32,14 @@ comes along:
 
 If a change would need private context to explain, it belongs somewhere else.
 
+## Docs
+
+The guides live on the website (<https://openintents.io/docs>), not here, so
+there is nothing to keep in step but the spec. The README's "Documentation"
+table maps tasks to those pages; when a spec change adds a surface (a new
+resource, a new event family), add its row. Never copy a guide into this
+repository.
+
 ## Layout
 
 | Path | Package | Toolchain |
