@@ -5,8 +5,8 @@ info:
   summary: The agentic API to buy anything.
   description: |
     Send an intent in plain language; the API does the agentic work in a real
-    browser, gets it paid (from your agent balance, or with a payment link) and
-    resolves to a structured receipt.
+    browser, gets it paid from the payer's own wallet and resolves to a
+    structured receipt.
 
     Each payer (your account, or one of its customers) has a browser profile
     that keeps their merchant logins between intents. Profiles and sessions
@@ -24,8 +24,7 @@ info:
     - Request bodies are JSON objects. Unknown fields are refused
       (`400 invalid_request`), and so is an unknown `customer`, with
       `param: customer`.
-    - Test and live keys work on the same customers, intents, balances and
-      profiles; `test` on an intent or a session says which kind of key made
+    - Test and live keys work on the same customers, intents and profiles; `test` on an intent or a session says which kind of key made
       it. Only live keys move money.
     - Event streams are Server-Sent Events: send `Accept: text/event-stream`.
     - Every request with a valid key counts against a limit of 600 a minute
@@ -280,34 +279,12 @@ paths:
         default:
           $ref: "#/components/responses/Error"
 
-  /balance:
-    get:
-      operationId: getBalance
-      summary: Get the agent balance
-      parameters:
-        - name: customer
-          in: query
-          description: A customer's balance instead of your account's.
-          schema:
-            type: string
-      responses:
-        "200":
-          description: The balance intents pay from.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Balance"
-        "4XX":
-          $ref: "#/components/responses/Error"
-        default:
-          $ref: "#/components/responses/Error"
-
   /customers:
     post:
       operationId: createCustomer
       summary: Create a customer
       description: |
-        Someone you buy for. A customer has their own balance and their own
+        Someone you buy for. A customer has their own wallet and their own
         browser profile; pass `customer` when creating an intent. An
         `external_id` already in use answers `409 conflict`. `limits` caps
         what they may spend.
@@ -393,52 +370,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Customer"
-        "4XX":
-          $ref: "#/components/responses/Error"
-        default:
-          $ref: "#/components/responses/Error"
-
-  /topups:
-    post:
-      operationId: createTopup
-      summary: Top up a balance
-      description: |
-        A payment link that adds `amount` to your account's balance, or a
-        customer's, once paid. Needs a live key: a test key answers
-        `400 invalid_request` (`live_key_required`).
-      parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/CreateTopupParams"
-      responses:
-        "201":
-          description: The top-up, `open` until paid.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Topup"
-        "4XX":
-          $ref: "#/components/responses/Error"
-        default:
-          $ref: "#/components/responses/Error"
-
-  /topups/{id}:
-    get:
-      operationId: getTopup
-      summary: Retrieve a top-up
-      parameters:
-        - $ref: "#/components/parameters/TopupId"
-      responses:
-        "200":
-          description: The top-up.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Topup"
         "4XX":
           $ref: "#/components/responses/Error"
         default:
@@ -909,7 +840,7 @@ paths:
       summary: Ask a customer to enter their own secrets
       description: |
         Makes a link to a page where the customer types their own secrets
-        (see `Secret`): an address, a contact, a card and the like. What they
+        (see `Secret`): an address, a contact, a loyalty number and the like. What they
         enter goes straight into the vault, so it never passes through your
         code, your agent or its model. You get the handles of what they made
         by reading the request, or from the `secret_request.completed`
@@ -921,8 +852,7 @@ paths:
         mode of the key that made the request, with `entered_by: payer`.
 
         Answers `503` with `code: secrets_unavailable` when secrets cannot be
-        stored right now, and with `code: cards_unavailable` when `kinds`
-        asks for a `card` and cards cannot be taken.
+        stored right now.
       parameters:
         - $ref: "#/components/parameters/CustomerId"
       requestBody:
@@ -945,7 +875,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorBody"
         "503":
-          description: "`secrets_unavailable` or `cards_unavailable`."
+          description: "`secrets_unavailable`."
           content:
             application/json:
               schema:
@@ -1068,8 +998,8 @@ paths:
       summary: Store a secret
       description: |
         Stores details a purchase may need and that you would not put in a
-        prompt: an address, a contact, a card, an identity document, a shop
-        login or a loyalty number. Secrets are write-only. The values are
+        prompt: an address, a contact, an identity document, a shop login or
+        a loyalty number. Secrets are write-only. The values are
         sealed on arrival and no call, event, webhook or log returns them; a
         secret comes back as its `label`, a `mask` and the few `public` fields
         its kind has. The agent is told that a secret exists, never what it
@@ -1239,8 +1169,8 @@ paths:
       summary: See what was done with a secret
       description: |
         The secret's history, newest first: when it was written, replaced or
-        deleted, and each time a value was typed into a shop, was used to
-        fund a balance, or a use was refused. Never a value or a mask. A
+        deleted, and each time a value was typed into a shop or a use was
+        refused. Never a value or a mask. A
         deleted secret's history stays readable.
       parameters:
         - $ref: "#/components/parameters/SecretId"
@@ -1767,13 +1697,6 @@ components:
       schema:
         type: string
         example: prf_7c1d04e2a9b3
-    TopupId:
-      name: id
-      in: path
-      required: true
-      schema:
-        type: string
-        example: pay_3e9b71
     SessionId:
       name: id
       in: path
@@ -1945,7 +1868,10 @@ components:
           description: Structured details (addresses, names, loyalty numbers), at most 16 KB as JSON.
         require_payment_link:
           type: boolean
-          description: Always return a payment link instead of paying from the balance.
+          description: |
+            Always wait in `requires_payment` with a payment link for the
+            payer (`reason: requested`) before paying, even when their wallet
+            could pay at once.
         sign_in_agent:
           type: boolean
           default: true
@@ -1988,7 +1914,7 @@ components:
           type: string
           description: |
             A customer of your account to buy for. The intent uses their
-            balance and their browser profile. Without it, your account's own.
+            wallet and their browser profile. Without it, your account's own.
         metadata:
           $ref: "#/components/schemas/MetadataParam"
         country:
@@ -2132,9 +2058,9 @@ components:
       type: object
       description: |
         What the payer has to do before a waiting purchase goes on. Send
-        them `payment_url`. A purchase paid from the payer's wallet waits on
-        a step in it, and goes back to `queued` by itself once the step is
-        done; `fee` is then `0`.
+        them `payment_url`. Purchases are paid from the payer's own wallet:
+        one waits on a step in it, and goes back to `queued` by itself once
+        the step is done. `fee` is `0`.
       required: [reason, payment_url, total, fee, currency, expires_at]
       properties:
         reason:
@@ -2142,8 +2068,6 @@ components:
           description: |
             Why the purchase waits:
 
-            - `insufficient_balance`: the balance is short of `total` plus
-              `fee`.
             - `over_limit`: the purchase is over a spending limit; on a
               wallet, the payer raises the limit they set.
             - `requested`: you asked for the payer to see a link first
@@ -2158,7 +2082,7 @@ components:
               a card the payer saved, say); the link shows how it is going.
 
             Others may appear.
-          enum: [insufficient_balance, over_limit, requested, connect_wallet, add_money, identity_check, wallet_processing]
+          enum: [over_limit, requested, connect_wallet, add_money, identity_check, wallet_processing]
         payment_url:
           type: string
           format: uri
@@ -2385,6 +2309,7 @@ components:
           type: integer
         fee:
           type: integer
+          description: OpenIntents' fee, in cents; `0` for now.
         currency:
           type: string
         confirmation:
@@ -2416,35 +2341,6 @@ components:
             $ref: "#/components/schemas/Intent"
         next_cursor:
           type: [string, "null"]
-
-    Balance:
-      type: object
-      required: [object, available, held, currency, customer, monthly_limit, per_intent_limit, spent_this_month]
-      properties:
-        object:
-          type: string
-          const: balance
-        available:
-          type: integer
-          description: What intents can pay from now.
-        held:
-          type: integer
-          description: Reserved for intents at their payment step.
-        currency:
-          type: string
-        customer:
-          type: [string, "null"]
-          description: The customer whose balance this is; `null` for your account's.
-        monthly_limit:
-          type: [integer, "null"]
-          description: |
-            The most that may leave the balance in a UTC calendar month, in
-            cents, or `null` for no limit. See `Customer.limits`.
-        per_intent_limit:
-          type: [integer, "null"]
-          description: The most one purchase may cost, merchant total plus fee, in cents, or `null` for no limit.
-        spent_this_month:
-          type: integer
 
     ErrorBody:
       type: object
@@ -2479,7 +2375,6 @@ components:
                 - portal_unavailable
                 - live_unavailable
                 - secrets_unavailable
-                - cards_unavailable
                 - answer_on_page
                 - unknown_option
             message:
@@ -2558,12 +2453,13 @@ components:
     Limits:
       type: object
       description: |
-        What a customer may spend, in cents, counting what leaves their
-        balance: the merchant's total plus the fee. `null` is no limit. An
-        intent that would go over `per_intent`, or take what was spent this UTC
-        calendar month plus what is held for purchases in progress over
-        `monthly`, fails with `limit_exceeded`; nothing is held and no payment
-        link is offered. Your account's own limits are set in the dashboard.
+        What a customer may spend, in cents, counting what their wallet's
+        purchases commit: the cart's total of each purchase paid from it.
+        `null` is no limit. An intent whose total is over `per_intent`, or
+        would take what this UTC calendar month's purchases committed over
+        `monthly`, fails with `limit_exceeded`. The limits are checked before
+        anything is paid, and nothing the payer does in their wallet lifts
+        them. Your account's own limits are set in the dashboard.
       required: [per_intent, monthly]
       properties:
         per_intent:
@@ -2617,58 +2513,6 @@ components:
             $ref: "#/components/schemas/Customer"
         next_cursor:
           type: [string, "null"]
-
-    CreateTopupParams:
-      type: object
-      additionalProperties: false
-      required: [amount]
-      properties:
-        amount:
-          type: integer
-          minimum: 50
-          maximum: 1000000
-          description: In cents.
-        currency:
-          type: string
-          enum: [usd]
-          default: usd
-          description: Only `usd` for now.
-        customer:
-          type: string
-          description: Top up this customer's balance instead of your account's.
-
-    Topup:
-      type: object
-      required: [id, object, amount, currency, customer, status, url, expires_at, created_at]
-      properties:
-        id:
-          type: string
-        object:
-          type: string
-          const: topup
-        amount:
-          type: integer
-        currency:
-          type: string
-        customer:
-          type: [string, "null"]
-        status:
-          type: string
-          description: |
-            `open` until paid or until `expires_at` (24 hours after it was
-            made). A payment begun in time can still turn an `expired` top-up
-            `paid`.
-          enum: [open, paid, expired]
-        url:
-          type: string
-          format: uri
-          description: Where the payer pays.
-        expires_at:
-          type: string
-          format: date-time
-        created_at:
-          type: string
-          format: date-time
 
     Event:
       type: object
@@ -3285,10 +3129,6 @@ components:
         What a secret holds, and so which `fields` it takes (all text; a
         required field must be sent). Fields marked public come back on the
         secret as `public`; the others are sealed and never come back.
-        - `card`: `token` (required, a payment-method token, `pm_...`, made by
-          the card form, never a card number) and the public `brand`, `last4`,
-          `exp_month`, `exp_year` (all required). A card funds a balance; it
-          is never typed into a shop.
         - `address`: `recipient_name`, `line1`, `postal_code` (required),
           `line2`, `phone`; public `city`, `country` (required, two letters),
           `region`.
@@ -3302,7 +3142,7 @@ components:
           one shop in `shops`.
         - `loyalty`: `member_number` (required), `pin`; public `program`
           (required).
-      enum: [card, address, contact, identity_document, shop_password, loyalty]
+      enum: [address, contact, identity_document, shop_password, loyalty]
 
     CreateSecretParams:
       type: object
@@ -3332,7 +3172,7 @@ components:
           description: |
             Shops it may be used on, as domains. Without any, an intent may
             name the shops itself (see `CreateIntentParams.shops`). A
-            `shop_password` needs exactly one; a `card` takes none.
+            `shop_password` needs exactly one.
         default:
           type: boolean
           description: Offer this one first among the payer's secrets of its kind. A purchase that names no `secrets` may use the payer's defaults.
@@ -3345,7 +3185,7 @@ components:
       type: object
       description: |
         A stored secret as you may see it: never its values. The `mask` is
-        what a person may be shown to recognise it (`Visa ••4242`), and
+        what a person may be shown to recognise it (`Paris, FR` for an address), and
         `public` holds the few fields its kind keeps in the clear.
       required: [id, object, customer, kind, label, mask, public, shops, default, mode, entered_by, version, created_at, updated_at, expires_at, last_used_at]
       properties:
@@ -3432,7 +3272,7 @@ components:
           description: |
             `create`, `replace`, `delete`, `expire` (it passed its
             `expires_at` and its values were taken away), `fill` (a value was
-            typed into a shop), `fund` (a card funded a balance) or `refuse`
+            typed into a shop) or `refuse`
             (a check turned a use away). Others may appear.
         actor:
           type: string
