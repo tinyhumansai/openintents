@@ -29,7 +29,7 @@ const created = await oi.intents.create({
 const intent = await oi.intents.wait(created.id); // final, or needs payment
 
 if (intent.status === "requires_payment") {
-  console.log("Pay here:", intent.payment?.payment_url);
+  console.log("Send the payer:", intent.payment?.payment_url); // a step in their wallet
 } else if (intent.status === "completed") {
   console.log(intent.result?.merchant, intent.result?.total);
 }
@@ -168,7 +168,7 @@ npm install -g @tinyhumansai/openintents
 openintents login
 openintents run "UberX to SFO, leaving 7am" --max 60 --wait
 openintents status <id> --wait --json
-openintents pay <id>      # open the payment link
+openintents pay <id>      # open the payment link (a step in the wallet)
 openintents input <id> --input <input id> --value <code>
 openintents balance [--customer <id>]
 openintents customers create --external-id u-7 --name Ada --per-intent 50

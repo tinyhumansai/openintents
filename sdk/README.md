@@ -45,10 +45,11 @@ when the API answers `204` (the timeline is over).
 Errors carry the API's `status`, `type` (`kind` in Rust), `code`, `param` and,
 with `profile_busy`, the `lease` that says what holds the profile.
 
-`wait` returns when the intent is final, or waits on a person: payment
-(`requires_payment`, `returnOnPayment` / `return_on_payment`), an answer
-from the payer while the agent signs them in to the shop or for a `detail`
-the purchase needs (`requires_input`, `returnOnInput` / `return_on_input`;
+`wait` returns when the intent is final, or waits on a person: a step in
+the payer's wallet (`requires_payment`, `returnOnPayment` /
+`return_on_payment`), an answer from the payer while the agent signs them in
+to the shop or for a `detail` the purchase needs (`requires_input`,
+`returnOnInput` / `return_on_input`;
 a detail's choices are in `input_request.options`), or the payer's sign-in
 to the shop (`requires_login`, `returnOnSignIn` / `return_on_sign_in`). All
 three are on by default.
