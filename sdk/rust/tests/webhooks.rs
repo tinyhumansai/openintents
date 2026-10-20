@@ -44,3 +44,15 @@ fn matches_the_shared_test_vector() {
         "t=1700000000,v1=366e40c480fe3a9e6a03609dca079cea86d77ae82d5a56b5348208247317a8d1"
     );
 }
+
+#[test]
+fn a_rotation_header_with_a_v1_for_each_secret_matches_either_secret() {
+    let new = sign_webhook(BODY, "whsec_new", Some(1_000));
+    let old = sign_webhook(BODY, "whsec_old", Some(1_000));
+    let header = format!("{new},{}", old.split_once(',').unwrap().1);
+    assert_eq!(header.matches("v1=").count(), 2);
+    for secret in ["whsec_new", "whsec_old"] {
+        assert!(verify_webhook_at(BODY, Some(&header), secret, 300, 1_000).is_ok());
+    }
+    assert!(verify_webhook_at(BODY, Some(&header), "whsec_other", 300, 1_000).is_err());
+}

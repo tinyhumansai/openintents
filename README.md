@@ -16,6 +16,32 @@ Claude Code plugin.
 > launch; see [`spec/openapi.yaml`](spec/openapi.yaml) and the
 > [docs](https://openintents.io/docs).
 
+## Documentation
+
+The guides live on the website, not in this repository:
+<https://openintents.io/docs>. We point at them instead of keeping copies
+here because two copies of a guide drift apart; the one thing this repository
+owns is the contract, [`spec/openapi.yaml`](spec/openapi.yaml), and every SDK
+and CLI README follows it. Each guide is also served as raw Markdown at
+`https://openintents.io/docs/raw/<page>`, and indexed for agents at
+<https://openintents.io/llms.txt>.
+
+| To do this | Read |
+| --- | --- |
+| Send an intent and follow it to a receipt | [Intents](https://openintents.io/docs/intents) and [Quickstart](https://openintents.io/docs/quickstart) |
+| Answer what the agent asks (a size, a code), or sign a payer in to a shop | [Intents](https://openintents.io/docs/intents) and the "Answer what the agent asked" and "Sign-in links" sections of the [REST API](https://openintents.io/docs/api) |
+| Use OpenIntents from Claude, Cursor, Codex or any MCP client | [MCP server](https://openintents.io/docs/mcp) |
+| Get told when an intent changes | [Webhooks](https://openintents.io/docs/webhooks) |
+| Act for your own customers (payers), with a portal for them | The "Customers" and "Portal sessions" sections of the [REST API](https://openintents.io/docs/api) |
+| Store an address, phone number or shop password once, write-only | [Secrets](https://openintents.io/docs/vault) |
+| Keep a payer's logins between intents, or drive their browser | [Browser profiles](https://openintents.io/docs/profiles) and [Browser sessions](https://openintents.io/docs/sessions) |
+| Follow a timeline live | [Events & live streams](https://openintents.io/docs/events) |
+| Pay from a balance or a payment link | [Balance & payments](https://openintents.io/docs/wallets) |
+| Have a customer set up the wallet they pay from, before their first purchase | [Balance & payments](https://openintents.io/docs/wallets) |
+| Use the command line | [CLI](https://openintents.io/docs/cli) |
+
+If a guide and the spec ever disagree, the spec wins; please open an issue.
+
 ## Install
 
 | | |
@@ -25,7 +51,7 @@ Claude Code plugin.
 | Rust | `cargo add openintents` |
 | CLI | `npm install -g @tinyhumansai/openintents` |
 | Claude Code | `/plugin marketplace add tinyhumansai/openintents` |
-| Any MCP client | `https://api.openintents.io/mcp` |
+| Any MCP client | `https://api.openintents.io/mcp`, with your API key as `Authorization: Bearer` |
 | Any agent | "Read https://openintents.io/llms.txt and follow the instructions to set up OpenIntents." |
 
 ## Quickstart
@@ -64,7 +90,9 @@ openintents run "restock the fridge for the week" --max 120 --wait
    your limits; otherwise the intent returns `requires_payment` with a
    `payment_url` for a person to pay.
 4. **Get the receipt.** Merchant, items, total, fee and confirmation, as JSON.
-   Webhooks fire on every status change.
+   Webhooks fire as the intent moves (`intent.completed`,
+   `intent.requires_payment`, `intent.requires_input`, `intent.failed` and
+   the rest of the list in the spec).
 
 ## Repository layout
 

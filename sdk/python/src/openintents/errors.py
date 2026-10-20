@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .types import ProfileLease
+from .types import ProfileLease, RateLimit
 
 
 class OpenIntentsError(Exception):
@@ -8,7 +8,9 @@ class OpenIntentsError(Exception):
 
     `code` gives a finer reason, such as "profile_busy" or "session_not_open";
     with "profile_busy", `lease` says what uses the profile and when its lease
-    next runs out.
+    next runs out. `retry_after` is the whole seconds the API said to wait (a
+    429 sends it), and `rate_limit` is your key's limit, when the response
+    carried the RateLimit-* headers.
     """
 
     def __init__(
@@ -21,6 +23,8 @@ class OpenIntentsError(Exception):
         param: str | None = None,
         lease: ProfileLease | None = None,
         request_id: str | None = None,
+        retry_after: int | None = None,
+        rate_limit: RateLimit | None = None,
     ) -> None:
         super().__init__(message)
         self.message = message
@@ -30,6 +34,8 @@ class OpenIntentsError(Exception):
         self.param = param
         self.lease = lease
         self.request_id = request_id
+        self.retry_after = retry_after
+        self.rate_limit = rate_limit
 
     def __repr__(self) -> str:
         return (

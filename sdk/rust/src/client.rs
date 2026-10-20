@@ -8,13 +8,21 @@ use serde::Deserialize;
 use crate::error::{Error, Result};
 use crate::stream::EventStream;
 use crate::types::{
-    Balance, CreateIntent, CreateProfile, CreateSession, CreateTopup, Customer, CustomerList, CustomerParams,
-    EventList, Intent, IntentList, IntentStatus, ListCustomers, ListEvents, ListIntents, ListProfiles, ListSessions,
-    Profile, ProfileLease, ProfileList, Session, SessionCommand, SessionCommandResult, SessionList, Topup,
+    AnswerInput, Balance, CreateIntent, CreateProfile, CreateSession, CreateTopup, Customer, CustomerList,
+    CustomerParams, EventList, Intent, IntentList, IntentStatus, ListCustomers, ListEvents, ListIntents, ListProfiles,
+    ListSessions, Profile, ProfileLease, ProfileList, Session, SessionCommand, SessionCommandResult, SessionList,
+    Topup,
+};
+use crate::types_v1::{
+    CreatePortalSession, CreateSecret, CreateSecretRequest, CreateSignIn, CreateWebhookEndpoint, ListSecrets, LiveLink,
+    Page, PortalSession, RateLimit, Secret, SecretList, SecretRequest, SecretRequestCreated, SecretUseList, SignIn,
+    UpdateWebhookEndpoint, WebhookDelivery, WebhookDeliveryList, WebhookEndpoint, WebhookEndpointList,
 };
 
 pub const DEFAULT_BASE_URL: &str = "https://api.openintents.io/v1";
 const VERSION: &str = env!("CARGO_PKG_VERSION");
+/// The longest the API holds a request for `Prefer: wait`.
+const MAX_HOLD_SECS: u32 = 50;
 /// A stream with no event and no keep-alive for this long (or the client
 /// timeout, if longer) is dropped and resumed.
 const STREAM_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
@@ -52,6 +60,15 @@ pub struct WaitOptions {
     /// Return when the intent needs payment (default true), so a person can
     /// be sent `payment.payment_url`. False keeps waiting until it is final.
     pub return_on_payment: bool,
+    /// Return when the intent waits for its payer to sign in to the shop
+    /// (default true), so they can be sent `sign_in.url`. False keeps waiting
+    /// until it is final.
+    pub return_on_sign_in: bool,
+    /// Return when the intent waits for its payer to answer what the agent
+    /// asks, while it signs them in or for a detail the purchase needs
+    /// (default true), so they can be asked `input_request.prompt`. False
+    /// keeps waiting until it is final.
+    pub return_on_input: bool,
 }
 
 impl Default for WaitOptions {
@@ -60,6 +77,8 @@ impl Default for WaitOptions {
             timeout: Duration::from_secs(300),
             interval: Duration::from_secs(2),
             return_on_payment: true,
+            return_on_sign_in: true,
+            return_on_input: true,
         }
     }
 }
@@ -123,6 +142,27 @@ impl Client {
         self.send(Method::GET, &format!("/intents/{id}"), None, |r| r).await
     }
 
+    /// [`Client::create_intent`], holding the request up to `wait_secs` whole
+    /// seconds (`Prefer: wait=N`, applied as 50 at most) until the intent is
+    /// neither `queued` nor `running`: it finished, or now needs a payment, an
+    /// answer or a sign-in. A hold that runs out is no error: the intent comes
+    /// back as it stands. The client's timeout is stretched to outlast the hold.
+    pub async fn create_intent_waiting(&self, params: CreateIntent, wait_secs: u32) -> Result<Intent> {
+        let key = uuid::Uuid::new_v4().to_string();
+        self.send(Method::POST, "/intents", Some(&key), |r| {
+            self.hold(r, wait_secs).json(&params)
+        })
+        .await
+    }
+
+    /// [`Client::get_intent`], held like [`Client::create_intent_waiting`].
+    pub async fn get_intent_waiting(&self, id: &str, wait_secs: u32) -> Result<Intent> {
+        self.send(Method::GET, &format!("/intents/{id}"), None, |r| {
+            self.hold(r, wait_secs)
+        })
+        .await
+    }
+
     pub async fn list_intents(&self, params: &ListIntents) -> Result<IntentList> {
         self.send(Method::GET, "/intents", None, |r| r.query(params)).await
     }
@@ -132,6 +172,30 @@ impl Client {
         let key = uuid::Uuid::new_v4().to_string();
         self.send(Method::POST, &format!("/intents/{id}/cancel"), Some(&key), |r| r)
             .await
+    }
+
+    /// Answer the intent's `input_request` while it waits in
+    /// `requires_input`. Returns the intent, usually `running` again. A
+    /// request already answered or expired is a 409 `input_not_waiting`.
+    /// Sends a fresh Idempotency-Key, so a retry never answers twice.
+    ///
+    /// ```no_run
+    /// # async fn run(oi: openintents::Client, intent: openintents::Intent) -> openintents::Result<()> {
+    /// use openintents::AnswerInput;
+    ///
+    /// if let Some(request) = &intent.input_request {
+    ///     // Ask the payer `request.prompt`, then:
+    ///     oi.answer_intent_input(&intent.id, AnswerInput::value(&request.id, "481516"))
+    ///         .await?;
+    /// }
+    /// # Ok(()) }
+    /// ```
+    pub async fn answer_intent_input(&self, id: &str, answer: AnswerInput) -> Result<Intent> {
+        let key = uuid::Uuid::new_v4().to_string();
+        self.send(Method::POST, &format!("/intents/{id}/input"), Some(&key), |r| {
+            r.json(&answer)
+        })
+        .await
     }
 
     /// The agent balance intents pay from, and this month's spend.
@@ -329,12 +393,205 @@ impl Client {
         EventStream::new(self.clone(), format!("/sessions/{id}/events"), last_event_id)
     }
 
-    /// Poll until the intent is final, or (by default) needs payment.
+    /// A link to the session's live view, valid for 10 minutes. Whoever holds
+    /// `url` sees the browser and drives it, though never to pay or place an
+    /// order. The session must be `open`. Each call makes a new link.
+    pub async fn create_live_link(&self, session: &str) -> Result<LiveLink> {
+        let key = uuid::Uuid::new_v4().to_string();
+        self.send(
+            Method::POST,
+            &format!("/sessions/{session}/live_links"),
+            Some(&key),
+            |r| r,
+        )
+        .await
+    }
+
+    /// A link to a customer's own page, shown once: send `url` to the
+    /// customer only. Until portal sessions are open to your key this is a
+    /// 503 `portal_unavailable`.
+    pub async fn create_portal_session(&self, customer: &str, params: CreatePortalSession) -> Result<PortalSession> {
+        let key = uuid::Uuid::new_v4().to_string();
+        self.send(
+            Method::POST,
+            &format!("/customers/{customer}/portal_sessions"),
+            Some(&key),
+            |r| r.json(&params),
+        )
+        .await
+    }
+
+    /// Ask a customer for their secrets on a page of their own. Send them the
+    /// `url`; its end is a `secret_request.completed` webhook.
+    pub async fn create_secret_request(
+        &self,
+        customer: &str,
+        params: CreateSecretRequest,
+    ) -> Result<SecretRequestCreated> {
+        let key = uuid::Uuid::new_v4().to_string();
+        self.send(
+            Method::POST,
+            &format!("/customers/{customer}/secret_requests"),
+            Some(&key),
+            |r| r.json(&params),
+        )
+        .await
+    }
+
+    /// Where a request for a customer's secrets stands.
+    pub async fn get_secret_request(&self, id: &str) -> Result<SecretRequest> {
+        self.send(Method::GET, &format!("/secret_requests/{id}"), None, |r| r)
+            .await
+    }
+
+    /// Store details a purchase may need and that you would not put in a
+    /// prompt. Secrets are write-only: one comes back as its label, a mask and
+    /// a few public fields, never its values. Sends a fresh Idempotency-Key.
+    pub async fn create_secret(&self, params: CreateSecret) -> Result<Secret> {
+        let key = uuid::Uuid::new_v4().to_string();
+        self.send(Method::POST, "/secrets", Some(&key), |r| r.json(&params))
+            .await
+    }
+
+    /// A payer's secrets in the key's mode, without their values: your
+    /// account's, or a customer's.
+    pub async fn list_secrets(&self, params: &ListSecrets) -> Result<SecretList> {
+        self.send(Method::GET, "/secrets", None, |r| r.query(params)).await
+    }
+
+    pub async fn get_secret(&self, id: &str) -> Result<Secret> {
+        self.send(Method::GET, &format!("/secrets/{id}"), None, |r| r).await
+    }
+
+    /// Replace a secret's whole content; its version goes up.
+    pub async fn replace_secret(&self, id: &str, params: CreateSecret) -> Result<Secret> {
+        let key = uuid::Uuid::new_v4().to_string();
+        self.send(Method::PUT, &format!("/secrets/{id}"), Some(&key), |r| r.json(&params))
+            .await
+    }
+
+    /// Delete a secret and its values.
+    pub async fn delete_secret(&self, id: &str) -> Result<()> {
+        self.send_raw(
+            Method::DELETE,
+            &format!("/secrets/{id}"),
+            None,
+            "application/json",
+            |r| r,
+        )
+        .await?;
+        Ok(())
+    }
+
+    /// A secret's history, newest first: made, replaced, filled into a shop or
+    /// refused. Never a value.
+    pub async fn list_secret_uses(&self, id: &str, page: &Page) -> Result<SecretUseList> {
+        self.send(Method::GET, &format!("/secrets/{id}/uses"), None, |r| r.query(page))
+            .await
+    }
+
+    /// A link where the payer signs in to a shop with no intent attached; the
+    /// profile keeps the login. Send them `url`. Its end is a
+    /// `sign_in.completed` or `sign_in.expired` webhook.
+    pub async fn create_sign_in(&self, params: CreateSignIn) -> Result<SignIn> {
+        let key = uuid::Uuid::new_v4().to_string();
+        self.send(Method::POST, "/sign_ins", Some(&key), |r| r.json(&params))
+            .await
+    }
+
+    pub async fn get_sign_in(&self, id: &str) -> Result<SignIn> {
+        self.send(Method::GET, &format!("/sign_ins/{id}"), None, |r| r).await
+    }
+
+    /// Register a URL for your account's events. The response alone carries
+    /// its `secret`: keep it.
+    pub async fn create_webhook_endpoint(&self, params: CreateWebhookEndpoint) -> Result<WebhookEndpoint> {
+        let key = uuid::Uuid::new_v4().to_string();
+        self.send(Method::POST, "/webhook_endpoints", Some(&key), |r| r.json(&params))
+            .await
+    }
+
+    /// Newest first, without their secrets.
+    pub async fn list_webhook_endpoints(&self, page: &Page) -> Result<WebhookEndpointList> {
+        self.send(Method::GET, "/webhook_endpoints", None, |r| r.query(page))
+            .await
+    }
+
+    pub async fn get_webhook_endpoint(&self, id: &str) -> Result<WebhookEndpoint> {
+        self.send(Method::GET, &format!("/webhook_endpoints/{id}"), None, |r| r)
+            .await
+    }
+
+    /// Change its URL, its event types (an empty list is every intent event)
+    /// or whether it is disabled.
+    pub async fn update_webhook_endpoint(&self, id: &str, params: UpdateWebhookEndpoint) -> Result<WebhookEndpoint> {
+        self.send(Method::PATCH, &format!("/webhook_endpoints/{id}"), None, |r| {
+            r.json(&params)
+        })
+        .await
+    }
+
+    pub async fn delete_webhook_endpoint(&self, id: &str) -> Result<()> {
+        self.send_raw(
+            Method::DELETE,
+            &format!("/webhook_endpoints/{id}"),
+            None,
+            "application/json",
+            |r| r,
+        )
+        .await?;
+        Ok(())
+    }
+
+    /// Make a new secret, returned here only. The one before keeps signing for
+    /// 24 hours; [`verify_webhook`](crate::verify_webhook) accepts a header
+    /// that carries both.
+    pub async fn rotate_webhook_secret(&self, id: &str) -> Result<WebhookEndpoint> {
+        self.send(
+            Method::POST,
+            &format!("/webhook_endpoints/{id}/rotate_secret"),
+            None,
+            |r| r,
+        )
+        .await
+    }
+
+    /// Send a `webhook_endpoint.test` event to this endpoint alone; the
+    /// delivery shows how it goes.
+    pub async fn test_webhook_endpoint(&self, id: &str) -> Result<WebhookDelivery> {
+        self.send(Method::POST, &format!("/webhook_endpoints/{id}/test"), None, |r| r)
+            .await
+    }
+
+    /// What was sent to the endpoint, newest first.
+    pub async fn list_webhook_deliveries(&self, id: &str, page: &Page) -> Result<WebhookDeliveryList> {
+        self.send(Method::GET, &format!("/webhook_endpoints/{id}/deliveries"), None, |r| {
+            r.query(page)
+        })
+        .await
+    }
+
+    /// Send a delivery again, with the same event `id` and body.
+    pub async fn redeliver_webhook(&self, endpoint: &str, delivery: &str) -> Result<WebhookDelivery> {
+        self.send(
+            Method::POST,
+            &format!("/webhook_endpoints/{endpoint}/deliveries/{delivery}/redeliver"),
+            None,
+            |r| r,
+        )
+        .await
+    }
+
+    /// Poll until the intent is final, or (by default) waits on a person: its
+    /// payment, an answer from its payer, or its payer's sign-in.
     pub async fn wait(&self, id: &str, opts: WaitOptions) -> Result<Intent> {
         let deadline = Instant::now() + opts.timeout;
         loop {
             let intent = self.get_intent(id).await?;
-            if intent.status.is_final() || (opts.return_on_payment && intent.status == IntentStatus::RequiresPayment) {
+            let waits_on_person = (opts.return_on_payment && intent.status == IntentStatus::RequiresPayment)
+                || (opts.return_on_sign_in && intent.status == IntentStatus::RequiresLogin)
+                || (opts.return_on_input && intent.status == IntentStatus::RequiresInput);
+            if intent.status.is_final() || waits_on_person {
                 return Ok(intent);
             }
             if Instant::now() + opts.interval > deadline {
@@ -345,6 +602,14 @@ impl Client {
             }
             tokio::time::sleep(opts.interval).await;
         }
+    }
+
+    /// Asks the API to hold a request (`Prefer: wait=N`) and stretches the
+    /// timeout to outlast the hold.
+    fn hold(&self, req: RequestBuilder, wait_secs: u32) -> RequestBuilder {
+        let hold = Duration::from_secs(u64::from(wait_secs.min(MAX_HOLD_SECS)) + 10);
+        req.header("Prefer", format!("wait={wait_secs}"))
+            .timeout(self.timeout.max(hold))
     }
 
     async fn send<T: DeserializeOwned>(
@@ -438,6 +703,8 @@ pub(crate) async fn api_error(res: reqwest::Response) -> Error {
         .get("request-id")
         .and_then(|v| v.to_str().ok())
         .map(str::to_string);
+    let retry_after = header_int(&res, "retry-after");
+    let rate_limit = rate_limit(&res);
     let detail = res.json::<ErrorBody>().await.ok().and_then(|b| b.error);
     let (kind, code, param, message, lease) = match detail {
         Some(d) => (d.kind, d.code, d.param, d.message, d.lease),
@@ -458,7 +725,25 @@ pub(crate) async fn api_error(res: reqwest::Response) -> Error {
         message: message.unwrap_or_else(|| format!("HTTP {}", status.as_u16())),
         lease,
         request_id,
+        retry_after,
+        rate_limit,
     }
+}
+
+fn header_int(res: &reqwest::Response, name: &str) -> Option<u64> {
+    res.headers()
+        .get(name)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.trim().parse::<u64>().ok())
+}
+
+fn rate_limit(res: &reqwest::Response) -> Option<RateLimit> {
+    let int = |name: &str| header_int(res, name).and_then(|v| u32::try_from(v).ok());
+    Some(RateLimit {
+        limit: int("ratelimit-limit")?,
+        remaining: int("ratelimit-remaining")?,
+        reset: int("ratelimit-reset")?,
+    })
 }
 
 pub(crate) fn backoff(attempt: u32, retry_after: Option<f64>) -> Duration {
