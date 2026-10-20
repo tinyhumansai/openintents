@@ -26,7 +26,7 @@ intent = oi.intents.create(
 intent = oi.intents.wait(intent["id"])  # returns when final, or when it needs payment
 
 if intent["status"] == "requires_payment":
-    print("Pay here:", intent["payment"]["payment_url"])
+    print("Send the payer:", intent["payment"]["payment_url"])  # a step in their wallet
 elif intent["status"] == "completed":
     receipt = intent["result"]
     print(receipt["merchant"], receipt["total"], receipt["confirmation"])

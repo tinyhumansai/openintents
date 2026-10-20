@@ -1,6 +1,6 @@
 {
   "name": "openintents",
-  "description": "Buy anything from a Claude Code session: connects the OpenIntents MCP server (create, track and cancel intents, check the agent balance) and adds the openintents skill for sending purchases well.",
+  "description": "Buy anything from a Claude Code session: connects the OpenIntents MCP server (create, track and cancel intents, and hand the user a link when their wallet needs a step) and adds the openintents skill for sending purchases well.",
   "version": "0.2.0",
   "author": { "name": "TinyHumans AI", "url": "https://openintents.io" },
   "homepage": "https://openintents.io/docs/mcp",

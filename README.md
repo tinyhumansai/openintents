@@ -4,9 +4,10 @@
 
 **The agentic API to buy anything.** Send one intent in plain language, like
 _"book me a trip to Bali"_ or _"get my lunch sorted: a bacon cheeseburger"_.
-The OpenIntents API does the agentic work in a real browser, gets it paid
-(from your agent balance, or with a payment link) and returns a structured
-receipt. Inference, browser, compute and bandwidth are free.
+The OpenIntents API does the agentic work in a real browser, pays from an
+account or customer balance or the payer's own wallet, and returns a
+structured receipt.
+Inference, browser, compute and bandwidth are free.
 
 This repository holds the open-source client side: SDKs for TypeScript,
 Python and Rust, the `openintents` CLI, the OpenAPI spec, an agent skill and a
@@ -36,8 +37,8 @@ and CLI README follows it. Each guide is also served as raw Markdown at
 | Store an address, phone number or shop password once, write-only | [Secrets](https://openintents.io/docs/vault) |
 | Keep a payer's logins between intents, or drive their browser | [Browser profiles](https://openintents.io/docs/profiles) and [Browser sessions](https://openintents.io/docs/sessions) |
 | Follow a timeline live | [Events & live streams](https://openintents.io/docs/events) |
-| Pay from a balance or a payment link | [Balance & payments](https://openintents.io/docs/wallets) |
-| Have a customer set up the wallet they pay from, before their first purchase | [Balance & payments](https://openintents.io/docs/wallets) |
+| Pay from the payer's own wallet, and what to do when a purchase waits | [Wallets & payments](https://openintents.io/docs/wallets) |
+| Have a customer set up the wallet they pay from, before their first purchase | [Wallet links](https://openintents.io/docs/wallets#wallet-links) |
 | Use the command line | [CLI](https://openintents.io/docs/cli) |
 
 If a guide and the spec ever disagree, the spec wins; please open an issue.
@@ -66,7 +67,7 @@ const oi = new OpenIntents(); // OPENINTENTS_API_KEY
 const created = await oi.intents.create({ intent: "flat white, oat milk, pickup 8:45", max_amount: 1000 });
 const intent = await oi.intents.wait(created.id);
 // "completed" → intent.result is the receipt
-// "requires_payment" → send someone intent.payment.payment_url
+// "requires_payment" → send the payer intent.payment.payment_url
 ```
 
 ```python
@@ -86,9 +87,14 @@ openintents run "restock the fridge for the week" --max 120 --wait
    optional structured `context`.
 2. **The API does the agentic work.** Behind the endpoint, a real browser
    finds the merchant, picks the item and gets to checkout.
-3. **Pay with your balance or a link.** A topped-up agent balance pays within
-   your limits; otherwise the intent returns `requires_payment` with a
-   `payment_url` for a person to pay.
+3. **Pay from a balance or the payer's wallet.** By default, intents use
+   your account's balance, or the customer's balance when you pass `customer`.
+   Set `require_payment_link` to request a payment link instead. Wallet-backed
+   purchases use the payer's own wallet, within the limits they set there.
+   If payment needs a step first, the intent returns `requires_payment` with
+   a `payment_url` and a `reason`, such as `insufficient_balance`. For wallet
+   steps (connecting it, adding money, an identity check), the intent carries
+   on by itself once the payer is done.
 4. **Get the receipt.** Merchant, items, total, fee and confirmation, as JSON.
    Webhooks fire as the intent moves (`intent.completed`,
    `intent.requires_payment`, `intent.requires_input`, `intent.failed` and

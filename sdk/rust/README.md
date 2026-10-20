@@ -22,7 +22,7 @@ async fn main() -> openintents::Result<()> {
         .await?;
     let intent = oi.wait(&intent.id, Default::default()).await?;
     if intent.status == IntentStatus::RequiresPayment {
-        println!("pay here: {}", intent.payment.unwrap().payment_url);
+        println!("send the payer: {}", intent.payment.unwrap().payment_url);
     }
     Ok(())
 }
