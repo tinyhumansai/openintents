@@ -267,6 +267,15 @@ fn create_sends_sign_in_agent_and_hint() {
     );
 }
 
+#[test]
+fn create_sends_pay_at_shop() {
+    let params = CreateIntent::new("a lamp").pay_at_shop(true);
+    assert_eq!(
+        serde_json::to_value(params).unwrap(),
+        json!({ "intent": "a lamp", "pay_at_shop": true })
+    );
+}
+
 #[tokio::test]
 async fn answers_an_input_request() {
     let server = MockServer::start().await;

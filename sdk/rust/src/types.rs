@@ -72,6 +72,15 @@ pub struct CreateIntent {
     /// for your key.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sign_in_agent: Option<bool>,
+    /// The payer pays the shop themselves (default `false`). At the payment
+    /// step the intent waits in `requires_input` with an
+    /// [`InputKind::Payment`] request whose `image_url` is a picture of the
+    /// shop's payment code (a UPI QR code); answer with
+    /// [`AnswerInput::done`] once they paid, or decline. Only the fee comes
+    /// from your balance. Live keys only; where it is not available for your
+    /// key, creating the intent is a 503 `pay_at_shop_unavailable`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pay_at_shop: Option<bool>,
     /// The payer's phone number or email for signing in, so the agent need
     /// not ask for it.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -139,6 +148,11 @@ impl CreateIntent {
 
     pub fn sign_in_agent(mut self, yes: bool) -> Self {
         self.sign_in_agent = Some(yes);
+        self
+    }
+
+    pub fn pay_at_shop(mut self, yes: bool) -> Self {
+        self.pay_at_shop = Some(yes);
         self
     }
 
@@ -280,6 +294,11 @@ pub enum InputKind {
     /// it; [`Client::answer_intent_input`](crate::Client::answer_intent_input)
     /// refuses any answer but a decline (`422 answer_on_page`).
     Sensitive,
+    /// The payer pays the shop themselves (`pay_at_shop`): show them
+    /// `image_url`, a picture of the shop's payment code to scan with a UPI
+    /// app, and answer with [`AnswerInput::done`] once they paid (it has no
+    /// value), or decline. It expires after 5 minutes.
+    Payment,
     #[serde(other)]
     Unknown,
 }
@@ -395,6 +414,11 @@ pub struct InputRequest {
     /// A page where the payer types the answer themselves. Theirs only:
     /// whoever has it can answer.
     pub url: String,
+    /// A [`InputKind::Payment`]'s picture (JPEG) of the shop's payment code,
+    /// for the payer to scan; served only while the request waits, absent for
+    /// other kinds. Like `url`, whoever has it can see it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_url: Option<String>,
     pub expires_at: String,
     /// How many more times the agent may ask for this kind in this purchase,
     /// after this one.
@@ -424,7 +448,8 @@ pub enum AnswerInput {
     },
     /// The payer would rather not: the agent stops signing them in this way.
     Decline { input: String },
-    /// Only for an approval: the payer approved the sign-in.
+    /// Only for an approval (the payer approved the sign-in) or a payment
+    /// (the payer paid the shop).
     Done { input: String },
 }
 

@@ -52,12 +52,15 @@ pub fn intent(intent: &Intent, json: bool) {
         println!("  sign in here: {}", s.url);
     }
     if let Some(r) = &intent.input_request {
-        let answer = if r.kind == InputKind::Approval {
+        let answer = if matches!(r.kind, InputKind::Approval | InputKind::Payment) {
             "--done"
         } else {
             "--value <answer>"
         };
         println!("  input needed at {}, ask the payer: {}", r.shop, r.prompt);
+        if let Some(image) = &r.image_url {
+            println!("  payment code to scan (theirs only): {image}");
+        }
         if !r.options.is_empty() {
             println!("  options: {}", r.options.join(", "));
         }
