@@ -328,3 +328,19 @@ describe("openintents intents", () => {
     expect(JSON.parse(r.out)).toHaveProperty("error.message");
   });
 });
+
+describe("openintents status", () => {
+  it("shows a payment's code to scan and answers it with --done", async () => {
+    const body = {
+      id: "int_1", object: "intent", status: "requires_input", intent: "a lamp", test: false, created_at: "x",
+      input_request: {
+        id: "inp_1", kind: "payment", shop: "blinkit.com", prompt: "Pay 249.00 INR", options: [], choices: [], fields: [],
+        expects: "text", channel: null, length: null, url: "https://openintents.io/input/inp_1",
+        image_url: "https://openintents.io/input/inp_1/code.jpg", expires_at: "x", attempts_left: 1,
+      },
+    };
+    const r = await cli(["status", "int_1"], [{ body }]);
+    expect(r.out).toContain("payment code to scan (theirs only): https://openintents.io/input/inp_1/code.jpg");
+    expect(r.out).toContain("--input inp_1 --done");
+  });
+});
