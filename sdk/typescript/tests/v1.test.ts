@@ -131,7 +131,7 @@ describe("customers", () => {
 
 describe("secrets", () => {
   it("stores one with an idempotency key", async () => {
-    const { fetch, calls } = mockFetch({ status: 201, body: { id: "sec_1", object: "secret", mask: "Visa ••4242" } });
+    const { fetch, calls } = mockFetch({ status: 201, body: { id: "sec_1", object: "secret", mask: "Paris, FR" } });
     const got = await make(fetch).secrets.create({
       kind: "address",
       label: "Home",
@@ -153,8 +153,8 @@ describe("secrets", () => {
       { body: { object: "list", data: [], next_cursor: null } },
     );
     const oi = make(fetch);
-    await oi.secrets.list({ customer: "cus_1", kind: "card" });
-    expect(calls[0]!.url).toBe("https://api.test/v1/secrets?customer=cus_1&kind=card");
+    await oi.secrets.list({ customer: "cus_1", kind: "loyalty" });
+    expect(calls[0]!.url).toBe("https://api.test/v1/secrets?customer=cus_1&kind=loyalty");
     await oi.secrets.get("sec_1");
     expect(calls[1]!.url).toBe("https://api.test/v1/secrets/sec_1");
     await oi.secrets.replace("sec_1", { kind: "contact", label: "Me", fields: { email: "a@b.co" } });

@@ -28,9 +28,8 @@ async fn main() -> openintents::Result<()> {
 }
 ```
 
-Also: `get_intent`, `list_intents`, `cancel_intent`, `balance`,
-`balance_for`, `create_customer`, `get_customer`, `update_customer`,
-`list_customers`, `create_topup`, `get_topup`, and
+Also: `get_intent`, `list_intents`, `cancel_intent`, `create_customer`,
+`get_customer`, `update_customer`, `list_customers`, and
 `webhooks::verify_webhook` for the `OpenIntents-Signature` header (session
 events carry a session: see `WebhookData`). `CreateIntent::customer` buys
 for one of your customers. Unknown fields and statuses from newer API
@@ -83,16 +82,14 @@ A CLI binary is included behind a feature:
 cargo install openintents --features cli
 openintents login
 openintents run "flat white, oat milk" --max 10 --wait
-openintents balance [--customer <id>]
 openintents customers create --external-id u-7 --name Ada --per-intent 50
 openintents customers portal <id>          # a link to the customer's own page
 openintents sessions open --customer <id> --start-url https://shop.example/
 openintents sessions command <id> snapshot # or navigate, read, click, type, select, press
 openintents sessions live <id>             # a 10 minute link to drive the browser
 openintents profiles list --customer <id>
-openintents topups create 25 --customer <id>
 openintents sign-ins create https://www.amazon.com/ --customer <id>
-echo '{"number":"4242424242424242"}' | openintents secrets set --kind card --label "Work Visa" --stdin
+echo '{"program":"Flying Blue","member_number":"1234567890"}' | openintents secrets set --kind loyalty --label "Flying Blue" --stdin
 openintents secrets list                   # handles and masks, never values
 ```
 
@@ -126,10 +123,13 @@ themselves: an `InputKind::Payment` question shows the shop's payment code at
 use openintents::{Client, CreateIntent, CreateSecret, CreateSignIn, SecretKind};
 
 async fn buy(oi: &Client) -> openintents::Result<()> {
-    let card = oi
-        .create_secret(CreateSecret::new(SecretKind::Card, "Work Visa", [("number", "4242424242424242")]).shops(["airfrance.com"]))
+    let miles = oi
+        .create_secret(
+            CreateSecret::new(SecretKind::Loyalty, "Flying Blue", [("program", "Flying Blue"), ("member_number", "1234567890")])
+                .shops(["airfrance.com"]),
+        )
         .await?;
-    oi.create_intent(CreateIntent::new("book the 7am flight").secrets([card.id]).shops(["airfrance.com"]))
+    oi.create_intent(CreateIntent::new("book the 7am flight").secrets([miles.id]).shops(["airfrance.com"]))
         .await?;
     let sign_in = oi.create_sign_in(CreateSignIn::new("https://www.amazon.com/")).await?; // send sign_in.url
     Ok(())

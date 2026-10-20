@@ -13,15 +13,14 @@ metadata:
 
 OpenIntents is an agentic API for transactions: you send an intent in plain
 language and it completes the purchase end to end, then returns a structured
-receipt. Inference, browser, compute and bandwidth are free; completed
-transactions carry a 5% fee that is shown on every receipt.
+receipt. Inference, browser, compute and bandwidth are free. OpenIntents' fee
+is zero for now, as shown on every receipt.
 
 ## Connect
 
 Prefer the MCP tools (`create_intent`, `wait_for_intent`, `get_intent`,
 `answer_input`, `list_intents`, `get_intent_events`, `cancel_intent`,
-`get_balance`, `create_topup`, `get_topup`, `create_secret`, `list_secrets`,
-`delete_secret`). The server takes the user's API
+`create_secret`, `list_secrets`, `delete_secret`). The server takes the user's API
 key (made at https://openintents.io/dashboard/api-keys), sent as
 `Authorization: Bearer <key>`. If the tools aren't available, with the key in
 `OPENINTENTS_API_KEY`:
@@ -57,7 +56,6 @@ key (made at https://openintents.io/dashboard/api-keys), sent as
    - `completed`: report merchant, items, total, fee and confirmation.
    - `requires_payment`: show the user what it is buying, explain
      `payment.reason`, and give them `payment.payment_url`:
-     - `insufficient_balance`: the balance cannot cover the total plus fee.
      - `over_limit`: the purchase exceeds a spending limit; for a wallet,
        the user raises their limit on the payment page.
      - `requested`: a payment link was requested before proceeding.
@@ -135,7 +133,7 @@ CLI exit codes: 0 completed, 1 failed or error, 2 needs payment, 3 cancelled,
   comes from, or `end_user_ip` (the user's own address) to have it inferred.
   The intent says which was used in `country` and `country_source`.
 - For details the purchase needs and that you would not put in a prompt
-  (an address, contact details, a card, a loyalty number, a shop password),
+  (an address, contact details, a loyalty number, a shop password),
   store them once with `create_secret` (a `kind`, a `label`, and `fields`)
   and name them on the intent with `secrets: ["sec_..."]` and the `shops` they
   may be filled on. A secret is write-only: you only ever get a label, a mask
@@ -151,7 +149,8 @@ CLI exit codes: 0 completed, 1 failed or error, 2 needs payment, 3 cancelled,
 
 - Only make purchases the user asked for, within the budget they gave.
 - Never pay a payment link yourself, and never ask for, store or invent card
-  numbers. Payment happens on the hosted payment page or from the balance.
+  numbers. Payment comes from the payer's own wallet, or the payer pays the
+  shop directly with `pay_at_shop`.
 - Never open a sign-in link, an `input_request.url`, a secret request's `url`
   or a live link yourself, and never log a secret's values. Never ask the
   user for a password, a card PIN, a UPI PIN or a bank OTP: ask only what

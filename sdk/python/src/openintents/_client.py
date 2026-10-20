@@ -29,7 +29,6 @@ from ._version import __version__
 from .errors import OpenIntentsError, WaitTimeoutError
 from .types import (
     FINAL_STATUSES,
-    Balance,
     Customer,
     CustomerList,
     Event,
@@ -51,7 +50,6 @@ from .types import (
     SessionList,
     SessionStatus,
     SignInHint,
-    Topup,
 )
 
 DEFAULT_BASE_URL = "https://api.openintents.io/v1"
@@ -315,9 +313,7 @@ class OpenIntents:
         self._timeout = timeout
         self._http = http_client or httpx.Client(timeout=timeout)
         self.intents = Intents(self)
-        self.balance = BalanceResource(self)
         self.customers = Customers(self)
-        self.topups = Topups(self)
         self.profiles = Profiles(self)
         self.sessions = Sessions(self)
         self.secrets = Secrets(self)
@@ -612,15 +608,6 @@ class Intents:
             time.sleep(interval)
 
 
-class BalanceResource:
-    def __init__(self, client: OpenIntents) -> None:
-        self._c = client
-
-    def get(self, *, customer: str | None = None) -> Balance:
-        """The agent balance intents pay from, and this month's spend; a customer's with customer=."""
-        return self._c._request("GET", "/balance", params={"customer": customer})
-
-
 class Customers:
     def __init__(self, client: OpenIntents) -> None:
         self._c = client
@@ -635,7 +622,7 @@ class Customers:
         limits: LimitsParams | None = None,
         idempotency_key: str | None = None,
     ) -> Customer:
-        """Someone you buy for, with their own balance and browser profile."""
+        """Someone you buy for, with their own wallet and browser profile."""
         body = _fields(external_id=external_id, name=name, email=email, metadata=metadata, limits=limits)
         return self._c._request(
             "POST", "/customers", json=body, idempotency_key=idempotency_key or str(uuid.uuid4())
@@ -687,7 +674,7 @@ class Customers:
         return_url: str | None = None,
         ttl_seconds: int | None = None,
     ) -> SecretRequestCreated:
-        """Ask a customer to enter their own secrets (an address, a card, an identity
+        """Ask a customer to enter their own secrets (an address, a contact, an identity
         document) on a page of their own, so they never pass through you.
 
         Send them url; read the result with secret_requests.get or the
@@ -713,28 +700,6 @@ class Customers:
             cursor = page.get("next_cursor")
             if not cursor:
                 return
-
-
-class Topups:
-    def __init__(self, client: OpenIntents) -> None:
-        self._c = client
-
-    def create(
-        self,
-        amount: int,
-        *,
-        currency: str | None = None,
-        customer: str | None = None,
-        idempotency_key: str | None = None,
-    ) -> Topup:
-        """A payment link that adds amount (cents) to a balance once paid. Live keys only."""
-        body = _fields(amount=amount, currency=currency, customer=customer)
-        return self._c._request(
-            "POST", "/topups", json=body, idempotency_key=idempotency_key or str(uuid.uuid4())
-        )
-
-    def get(self, topup_id: str) -> Topup:
-        return self._c._request("GET", f"/topups/{topup_id}")
 
 
 class Profiles:
@@ -928,9 +893,7 @@ class AsyncOpenIntents:
         self._timeout = timeout
         self._http = http_client or httpx.AsyncClient(timeout=timeout)
         self.intents = AsyncIntents(self)
-        self.balance = AsyncBalanceResource(self)
         self.customers = AsyncCustomers(self)
-        self.topups = AsyncTopups(self)
         self.profiles = AsyncProfiles(self)
         self.sessions = AsyncSessions(self)
         self.secrets = AsyncSecrets(self)
@@ -1176,14 +1139,6 @@ class AsyncIntents:
             await asyncio.sleep(interval)
 
 
-class AsyncBalanceResource:
-    def __init__(self, client: AsyncOpenIntents) -> None:
-        self._c = client
-
-    async def get(self, *, customer: str | None = None) -> Balance:
-        return await self._c._request("GET", "/balance", params={"customer": customer})
-
-
 class AsyncCustomers:
     def __init__(self, client: AsyncOpenIntents) -> None:
         self._c = client
@@ -1248,7 +1203,7 @@ class AsyncCustomers:
         return_url: str | None = None,
         ttl_seconds: int | None = None,
     ) -> SecretRequestCreated:
-        """Ask a customer to enter their own secrets (an address, a card, an identity
+        """Ask a customer to enter their own secrets (an address, a contact, an identity
         document) on a page of their own, so they never pass through you.
 
         Send them url; read the result with secret_requests.get or the
@@ -1275,27 +1230,6 @@ class AsyncCustomers:
             cursor = page.get("next_cursor")
             if not cursor:
                 return
-
-
-class AsyncTopups:
-    def __init__(self, client: AsyncOpenIntents) -> None:
-        self._c = client
-
-    async def create(
-        self,
-        amount: int,
-        *,
-        currency: str | None = None,
-        customer: str | None = None,
-        idempotency_key: str | None = None,
-    ) -> Topup:
-        body = _fields(amount=amount, currency=currency, customer=customer)
-        return await self._c._request(
-            "POST", "/topups", json=body, idempotency_key=idempotency_key or str(uuid.uuid4())
-        )
-
-    async def get(self, topup_id: str) -> Topup:
-        return await self._c._request("GET", f"/topups/{topup_id}")
 
 
 class AsyncProfiles:

@@ -19,8 +19,6 @@ import {
   describeSecretRequest,
   describeSession,
   describeSignIn,
-  describeTopup,
-  money,
 } from "./cli-format.js";
 import { OpenIntentsError, WaitTimeoutError } from "./errors.js";
 import { mcpUrl, runMcpBridge } from "./mcp.js";
@@ -76,7 +74,6 @@ Usage:
   openintents input <id> --input <input id> (--value <answer> | --decline | --done)
                                 answer what the intent asks the payer for
   openintents pay <id>          open the intent's payment link
-  openintents balance [--customer <id>]
 
   openintents customers create|update [<id>] [--external-id <id>] [--name <name>] [--email <email>]
                                 [--metadata key=value]... [--per-intent <dollars|none>] [--monthly <dollars|none>]
@@ -96,9 +93,6 @@ Usage:
   openintents profiles list [--customer <id>] [--limit <n>] [--cursor <c>]
   openintents profiles create [--customer <id>]
   openintents profiles get|forget <id>
-
-  openintents topups create <dollars> [--customer <id>]
-  openintents topups get <id>
 
   openintents sign-ins create <shop url> [--customer <id>] [--country <cc>] [--end-user-ip <ip>] [--return-url <url>]
   openintents sign-ins get <id>
@@ -345,14 +339,6 @@ async function dispatch(argv: string[], io: CliIo): Promise<number> {
       print(payment, () => `Opened ${payment.payment_url}`);
       return 2;
     }
-    case "balance": {
-      const b = await (await io.client()).balance.get(values.customer ? { customer: values.customer } : {});
-      print(b, () => {
-        const spent = b.spent_this_month !== undefined ? `, ${money(b.spent_this_month, b.currency)} spent this month` : "";
-        return `${money(b.available, b.currency)} available${spent}`;
-      });
-      return 0;
-    }
     case "customers": {
       const oi = await io.client();
       switch (sub) {
@@ -468,25 +454,6 @@ async function dispatch(argv: string[], io: CliIo): Promise<number> {
         }
         default:
           throw new Error("Usage: openintents profiles list|create|get|forget");
-      }
-    }
-    case "topups": {
-      const oi = await io.client();
-      switch (sub) {
-        case "create": {
-          if (!rest[0]) throw new Error("Usage: openintents topups create <dollars> [--customer <id>]");
-          const t = await oi.topups.create(defined({ amount: cents("amount", rest[0]), customer: values.customer }));
-          print(t, () => describeTopup(t));
-          return 0;
-        }
-        case "get": {
-          if (!rest[0]) throw new Error("Usage: openintents topups get <id>");
-          const t = await oi.topups.get(rest[0]);
-          print(t, () => describeTopup(t));
-          return 0;
-        }
-        default:
-          throw new Error("Usage: openintents topups create|get");
       }
     }
     case "sign-ins": {

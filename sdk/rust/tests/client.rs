@@ -1,8 +1,8 @@
 use std::time::Duration;
 
 use openintents::{
-    AnswerInput, Client, CreateIntent, CreateTopup, CustomerParams, Error, InputChannel, InputKind, Intent,
-    IntentStatus, ListCustomers, ListIntents, SignInHint, TopupStatus, WaitOptions,
+    AnswerInput, Client, CreateIntent, CustomerParams, Error, InputChannel, InputKind, Intent, IntentStatus,
+    ListCustomers, ListIntents, SignInHint, WaitOptions,
 };
 use serde_json::json;
 use wiremock::matchers::{body_json, header, header_exists, method, path, query_param};
@@ -106,8 +106,8 @@ async fn retries_server_errors() {
 async fn wait_returns_the_payment_link() {
     let server = MockServer::start().await;
     let mut needs_payment = intent("requires_payment");
-    needs_payment["payment"] = json!({ "reason": "insufficient_balance", "payment_url": "https://pay/p",
-        "total": 550, "fee": 28, "currency": "usd", "expires_at": "x" });
+    needs_payment["payment"] = json!({ "reason": "add_money", "payment_url": "https://pay/p",
+        "total": 550, "fee": 0, "currency": "usd", "expires_at": "x" });
     Mock::given(method("GET"))
         .respond_with(ResponseTemplate::new(200).set_body_json(intent("running")))
         .up_to_n_times(1)
@@ -364,31 +364,8 @@ async fn unknown_status_does_not_break_parsing() {
 }
 
 #[tokio::test]
-async fn gets_the_balance() {
+async fn buys_for_a_customer() {
     let server = MockServer::start().await;
-    Mock::given(method("GET"))
-        .and(path("/balance"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_json(json!({ "object": "balance", "available": 24450, "currency": "usd" })),
-        )
-        .mount(&server)
-        .await;
-    assert_eq!(client(&server).balance().await.unwrap().available, 24450);
-}
-
-#[tokio::test]
-async fn buys_for_a_customer_and_reads_their_balance() {
-    let server = MockServer::start().await;
-    Mock::given(method("GET"))
-        .and(path("/balance"))
-        .and(query_param("customer", "cus_1"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(
-            json!({ "object": "balance", "available": 0, "held": 450, "currency": "usd", "customer": "cus_1" }),
-        ))
-        .expect(1)
-        .mount(&server)
-        .await;
     Mock::given(method("POST"))
         .and(path("/intents"))
         .and(body_json(json!({ "intent": "flat white", "customer": "cus_1" })))
@@ -404,8 +381,6 @@ async fn buys_for_a_customer_and_reads_their_balance() {
         .mount(&server)
         .await;
     let oi = client(&server);
-    let balance = oi.balance_for("cus_1").await.unwrap();
-    assert_eq!((balance.held, balance.customer.as_deref()), (Some(450), Some("cus_1")));
     oi.create_intent(CreateIntent::new("flat white").customer("cus_1"))
         .await
         .unwrap();
@@ -469,33 +444,4 @@ async fn creates_updates_and_lists_customers() {
     };
     assert_eq!(oi.list_customers(&only).await.unwrap().data.len(), 1);
     assert_eq!(oi.get_customer("cus_1").await.unwrap().id, "cus_1");
-}
-
-#[tokio::test]
-async fn creates_and_retrieves_a_topup() {
-    let server = MockServer::start().await;
-    let topup = |status: &str| {
-        json!({ "id": "pay_1", "object": "topup", "amount": 5000, "currency": "usd", "customer": "cus_1",
-                "status": status, "url": "https://openintents.io/api/pay/pay_1", "expires_at": "x",
-                "created_at": "x" })
-    };
-    Mock::given(method("POST"))
-        .and(path("/topups"))
-        .and(header_exists("idempotency-key"))
-        .and(body_json(json!({ "amount": 5000, "customer": "cus_1" })))
-        .respond_with(ResponseTemplate::new(201).set_body_json(topup("open")))
-        .expect(1)
-        .mount(&server)
-        .await;
-    Mock::given(method("GET"))
-        .and(path("/topups/pay_1"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(topup("refunded")))
-        .expect(1)
-        .mount(&server)
-        .await;
-    let oi = client(&server);
-    let made = oi.create_topup(CreateTopup::new(5000).customer("cus_1")).await.unwrap();
-    assert_eq!(made.status, TopupStatus::Open);
-    // A status this SDK does not know yet still parses.
-    assert_eq!(oi.get_topup("pay_1").await.unwrap().status, TopupStatus::Unknown);
 }

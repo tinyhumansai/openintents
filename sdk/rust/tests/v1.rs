@@ -187,7 +187,7 @@ async fn a_sensitive_question_refuses_an_answer_off_the_page() {
 async fn a_429_carries_retry_after_and_the_rate_limit() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/balance"))
+        .and(path("/customers/cus_1"))
         .respond_with(
             ResponseTemplate::new(429)
                 .insert_header("Retry-After", "0")
@@ -200,7 +200,7 @@ async fn a_429_carries_retry_after_and_the_rate_limit() {
         )
         .mount(&server)
         .await;
-    match client(&server).balance().await.unwrap_err() {
+    match client(&server).get_customer("cus_1").await.unwrap_err() {
         Error::Api {
             status,
             code,
@@ -219,7 +219,7 @@ async fn a_429_carries_retry_after_and_the_rate_limit() {
 }
 
 #[tokio::test]
-async fn customers_carry_limits_and_balances_the_per_intent_limit() {
+async fn customers_carry_limits() {
     let params = serde_json::to_value(
         CustomerParams::default().limits(LimitsParams::default().per_intent(Some(5000)).monthly(None)),
     )
@@ -228,13 +228,6 @@ async fn customers_carry_limits_and_balances_the_per_intent_limit() {
 
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/balance"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "object": "balance", "available": 100, "currency": "usd", "monthly_limit": 9000, "per_intent_limit": 5000
-        })))
-        .mount(&server)
-        .await;
-    Mock::given(method("GET"))
         .and(path("/customers/cus_1"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "id": "cus_1", "created_at": "t", "limits": { "per_intent": 5000, "monthly": null }
@@ -242,7 +235,6 @@ async fn customers_carry_limits_and_balances_the_per_intent_limit() {
         .mount(&server)
         .await;
     let oi = client(&server);
-    assert_eq!(oi.balance().await.unwrap().per_intent_limit, Some(5000));
     let limits = oi.get_customer("cus_1").await.unwrap().limits.unwrap();
     assert_eq!((limits.per_intent, limits.monthly), (Some(5000), None));
 }
@@ -273,10 +265,10 @@ async fn makes_portal_sessions_live_links_and_secret_requests() {
         .await;
     Mock::given(method("POST"))
         .and(path("/customers/cus_1/secret_requests"))
-        .and(body_json(json!({ "kinds": ["card", "identity_document"] })))
+        .and(body_json(json!({ "kinds": ["contact", "identity_document"] })))
         .respond_with(ResponseTemplate::new(201).set_body_json(json!({
             "id": "sqr_1", "object": "secret_request", "customer": "cus_1",
-            "kinds": ["card", "identity_document"], "url": "https://x/secrets/sqr_1", "expires_at": "t"
+            "kinds": ["contact", "identity_document"], "url": "https://x/secrets/sqr_1", "expires_at": "t"
         })))
         .expect(1)
         .mount(&server)
@@ -285,7 +277,7 @@ async fn makes_portal_sessions_live_links_and_secret_requests() {
         .and(path("/secret_requests/sqr_1"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "id": "sqr_1", "object": "secret_request", "customer": "cus_1", "mode": "test",
-            "kinds": ["card"], "state": "done", "expires_at": "t", "completed_at": "t2", "secrets": ["sec_9"]
+            "kinds": ["contact"], "state": "done", "expires_at": "t", "completed_at": "t2", "secrets": ["sec_9"]
         })))
         .expect(1)
         .mount(&server)
@@ -306,7 +298,7 @@ async fn makes_portal_sessions_live_links_and_secret_requests() {
     let made = oi
         .create_secret_request(
             "cus_1",
-            CreateSecretRequest::new([SecretKind::Card, SecretKind::IdentityDocument]),
+            CreateSecretRequest::new([SecretKind::Contact, SecretKind::IdentityDocument]),
         )
         .await
         .unwrap();
@@ -315,8 +307,8 @@ async fn makes_portal_sessions_live_links_and_secret_requests() {
 }
 
 fn secret() -> serde_json::Value {
-    json!({ "id": "sec_1", "object": "secret", "customer": null, "kind": "card", "label": "Work Visa",
-            "mask": "Visa ••4242", "public": { "brand": "visa" }, "shops": ["a.com"], "default": true,
+    json!({ "id": "sec_1", "object": "secret", "customer": null, "kind": "loyalty", "label": "Flying Blue",
+            "mask": "••7890", "public": { "program": "Flying Blue" }, "shops": ["a.com"], "default": true,
             "mode": "test", "entered_by": "developer", "version": 1, "created_at": "t", "updated_at": "t",
             "expires_at": null, "last_used_at": null })
 }
@@ -324,7 +316,7 @@ fn secret() -> serde_json::Value {
 #[tokio::test]
 async fn stores_lists_replaces_and_deletes_secrets() {
     let server = MockServer::start().await;
-    let body = json!({ "kind": "card", "label": "Work Visa", "fields": { "number": "4242424242424242" },
+    let body = json!({ "kind": "loyalty", "label": "Flying Blue", "fields": { "member_number": "1234567890" },
                        "shops": ["a.com"], "default": true });
     Mock::given(method("POST"))
         .and(path("/secrets"))
@@ -345,7 +337,7 @@ async fn stores_lists_replaces_and_deletes_secrets() {
     Mock::given(method("GET"))
         .and(path("/secrets"))
         .and(query_param("customer", "cus_1"))
-        .and(query_param("kind", "card"))
+        .and(query_param("kind", "loyalty"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "object": "list", "data": [secret()] })))
         .expect(1)
         .mount(&server)
@@ -355,7 +347,7 @@ async fn stores_lists_replaces_and_deletes_secrets() {
         .and(query_param("limit", "2"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "object": "list", "next_cursor": "c2",
-            "data": [{ "id": "use_1", "object": "secret_use", "secret": "sec_1", "kind": "card",
+            "data": [{ "id": "use_1", "object": "secret_use", "secret": "sec_1", "kind": "loyalty",
                        "action": "refuse", "actor": "worker", "outcome": "refused",
                        "reason": "shop_not_allowed", "shop": "b.com", "at": "t" }]
         })))
@@ -377,17 +369,17 @@ async fn stores_lists_replaces_and_deletes_secrets() {
 
     let oi = client(&server);
     let new = || {
-        CreateSecret::new(SecretKind::Card, "Work Visa", [("number", "4242424242424242")])
+        CreateSecret::new(SecretKind::Loyalty, "Flying Blue", [("member_number", "1234567890")])
             .shops(["a.com"])
             .default(true)
     };
     let made = oi.create_secret(new()).await.unwrap();
-    assert_eq!((made.mask.as_str(), made.version), ("Visa ••4242", 1));
+    assert_eq!((made.mask.as_str(), made.version), ("••7890", 1));
     oi.replace_secret("sec_1", new()).await.unwrap();
     let list = oi
         .list_secrets(&ListSecrets {
             customer: Some("cus_1".into()),
-            kind: Some(SecretKind::Card),
+            kind: Some(SecretKind::Loyalty),
         })
         .await
         .unwrap();
@@ -572,7 +564,7 @@ fn sign_in_secret_request_and_test_events_parse() {
 
     let e = event(
         "secret_request.completed",
-        json!({ "id": "sqr_1", "customer": "cus_1", "mode": "live", "kinds": ["card"], "state": "done",
+        json!({ "id": "sqr_1", "customer": "cus_1", "mode": "live", "kinds": ["address"], "state": "done",
                 "expires_at": "t", "secrets": ["sec_1"] }),
     );
     assert_eq!(e.secret_request().unwrap().secrets, ["sec_1"]);

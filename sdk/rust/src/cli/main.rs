@@ -14,8 +14,8 @@ use clap::builder::PossibleValuesParser;
 use clap::{Args, Parser, Subcommand};
 use openintents::{
     AnswerInput, Client, CreateIntent, CreatePortalSession, CreateProfile, CreateSecret, CreateSecretRequest,
-    CreateSession, CreateSignIn, CreateTopup, CustomerParams, IntentStatus, LimitsParams, ListCustomers, ListIntents,
-    ListProfiles, ListSecrets, ListSessions, SecretKind, SessionCommand, SessionStatus,
+    CreateSession, CreateSignIn, CustomerParams, IntentStatus, LimitsParams, ListCustomers, ListIntents, ListProfiles,
+    ListSecrets, ListSessions, SecretKind, SessionCommand, SessionStatus,
 };
 use serde_json::{json, Value};
 
@@ -32,14 +32,7 @@ const INTENT_STATUSES: [&str; 8] = [
     "cancelled",
 ];
 const SESSION_STATUSES: [&str; 6] = ["queued", "opening", "open", "closing", "closed", "failed"];
-const SECRET_KINDS: [&str; 6] = [
-    "card",
-    "address",
-    "contact",
-    "identity_document",
-    "shop_password",
-    "loyalty",
-];
+const SECRET_KINDS: [&str; 5] = ["address", "contact", "identity_document", "shop_password", "loyalty"];
 
 #[derive(Parser)]
 #[command(name = "openintents", version, about = "The agentic API to buy anything")]
@@ -62,7 +55,7 @@ enum Command {
         /// Context for the agent, as key=value; repeat for more.
         #[arg(long)]
         context: Vec<String>,
-        /// Always return a payment link instead of paying from the balance.
+        /// Always wait with a payment link for the payer before paying.
         #[arg(long)]
         payment_link: bool,
         /// Wait until it completes, fails or needs payment.
@@ -95,12 +88,6 @@ enum Command {
     },
     /// Print an intent's payment link.
     Pay { id: String },
-    /// Show the agent balance.
-    Balance {
-        /// A customer's balance instead of your account's.
-        #[arg(long)]
-        customer: Option<String>,
-    },
     /// Create, update, list customers and make a link to their own page.
     Customers {
         #[command(subcommand)]
@@ -115,11 +102,6 @@ enum Command {
     Profiles {
         #[command(subcommand)]
         command: Profiles,
-    },
-    /// Make a payment link that adds to a balance.
-    Topups {
-        #[command(subcommand)]
-        command: Topups,
     },
     /// Make a link where a payer signs in to a shop.
     SignIns {
@@ -295,19 +277,6 @@ enum Profiles {
     },
     /// Erase everything the profile kept.
     Forget {
-        id: String,
-    },
-}
-
-#[derive(Subcommand)]
-enum Topups {
-    /// A payment link for an amount in dollars. Live keys only.
-    Create {
-        dollars: String,
-        #[arg(long)]
-        customer: Option<String>,
-    },
-    Get {
         id: String,
     },
 }
@@ -657,18 +626,6 @@ async fn run(cli: Cli) -> Outcome {
             }
             exit_for(it.status)
         }
-        Command::Balance { customer } => {
-            let b = match customer {
-                Some(c) => oi.balance_for(&c).await?,
-                None => oi.balance().await?,
-            };
-            if json {
-                show::json_line(&b);
-            } else {
-                println!("{} available", show::money(b.available, &b.currency));
-            }
-            0
-        }
         Command::Customers { command } => {
             match command {
                 Customers::Create(flags) => show::customer(&oi.create_customer(customer_params(flags)?).await?, json),
@@ -803,17 +760,6 @@ async fn run(cli: Cli) -> Outcome {
                 }
                 Profiles::Get { id } => show::profile(&oi.get_profile(&id).await?, json),
                 Profiles::Forget { id } => show::profile(&oi.forget_profile(&id).await?, json),
-            }
-            0
-        }
-        Command::Topups { command } => {
-            match command {
-                Topups::Create { dollars, customer } => {
-                    let mut params = CreateTopup::new(cents("amount", &dollars)?);
-                    params.customer = customer;
-                    show::topup(&oi.create_topup(params).await?, json);
-                }
-                Topups::Get { id } => show::topup(&oi.get_topup(&id).await?, json),
             }
             0
         }

@@ -168,8 +168,8 @@ def test_secrets_resource():
         "default": True,
     }
     assert calls[0].headers["idempotency-key"]
-    oi.secrets.list(customer="cus_1", kind="card")
-    assert str(calls[1].url) == "https://api.test/v1/secrets?customer=cus_1&kind=card"
+    oi.secrets.list(customer="cus_1", kind="loyalty")
+    assert str(calls[1].url) == "https://api.test/v1/secrets?customer=cus_1&kind=loyalty"
     oi.secrets.get("sec_1")
     oi.secrets.replace("sec_1", kind="contact", label="Me", fields={"email": "a@b.co"})
     assert calls[3].method == "PUT"

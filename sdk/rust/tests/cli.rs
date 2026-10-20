@@ -83,8 +83,8 @@ fn profile(status: &str) -> Value {
 }
 
 fn secret() -> Value {
-    json!({ "id": "sec_1", "object": "secret", "customer": null, "kind": "card", "label": "Work Visa", "mask": "Visa ••4242",
-            "public": {}, "shops": ["airfrance.com"], "default": false, "mode": "test", "entered_by": "developer", "version": 1,
+    json!({ "id": "sec_1", "object": "secret", "customer": null, "kind": "loyalty", "label": "Flying Blue", "mask": "••7890",
+            "public": { "program": "Flying Blue" }, "shops": ["airfrance.com"], "default": false, "mode": "test", "entered_by": "developer", "version": 1,
             "created_at": "x", "updated_at": "x", "expires_at": null, "last_used_at": null })
 }
 
@@ -364,36 +364,6 @@ async fn profiles_list_create_get_and_forget() {
 }
 
 #[tokio::test]
-async fn topups_create_takes_dollars_and_prints_the_link() {
-    let topup = json!({ "id": "top_1", "object": "topup", "amount": 2500, "currency": "usd", "customer": "cus_1", "status": "open",
-                        "url": "https://pay.example/top_1", "expires_at": "x", "created_at": "x" });
-    let server = serve("POST", "/topups", 201, topup.clone()).await;
-    let r = openintents(&server, &["topups", "create", "25", "--customer", "cus_1"], "").await;
-    assert_eq!(r.code, 0, "{}", r.err);
-    assert_eq!(
-        sent(&server).await.1.unwrap(),
-        json!({ "amount": 2500, "customer": "cus_1" })
-    );
-    assert!(
-        r.out.contains("https://pay.example/top_1") && r.out.contains("$25.00"),
-        "{}",
-        r.out
-    );
-
-    let mut paid = topup;
-    paid["status"] = json!("paid");
-    let server = serve("GET", "/topups/top_1", 200, paid).await;
-    assert!(openintents(&server, &["topups", "get", "top_1"], "")
-        .await
-        .out
-        .contains("paid"));
-
-    let server = MockServer::start().await;
-    assert_ne!(openintents(&server, &["topups", "create", "lots"], "").await.code, 0);
-    assert!(server.received_requests().await.unwrap().is_empty());
-}
-
-#[tokio::test]
 async fn sign_ins_create_and_get() {
     let sign_in = json!({ "id": "sgn_1", "object": "sign_in", "status": "open", "customer": "cus_1", "shop": "amazon.com",
                           "country": "us", "country_source": "default", "return_url": null, "url": "https://openintents.io/signin/abc",
@@ -439,13 +409,13 @@ async fn secrets_set_stores_without_printing_values() {
             "secrets",
             "set",
             "--kind",
-            "card",
+            "loyalty",
             "--label",
-            "Work Visa",
+            "Flying Blue",
             "--field",
-            "number=4242424242424242",
+            "member_number=1234567890",
             "--field",
-            "cvc=123",
+            "pin=4321",
             "--shop",
             "airfrance.com",
             "--default",
@@ -456,12 +426,12 @@ async fn secrets_set_stores_without_printing_values() {
     assert_eq!(r.code, 0, "{}", r.err);
     assert_eq!(
         sent(&server).await.1.unwrap(),
-        json!({ "kind": "card", "label": "Work Visa", "fields": { "number": "4242424242424242", "cvc": "123" },
+        json!({ "kind": "loyalty", "label": "Flying Blue", "fields": { "member_number": "1234567890", "pin": "4321" },
                 "shops": ["airfrance.com"], "default": true })
     );
-    assert!(r.out.contains("Visa ••4242"));
+    assert!(r.out.contains("••7890"));
     for text in [&r.out, &r.err] {
-        assert!(!text.contains("4242424242424242") && !text.contains("123"), "{text}");
+        assert!(!text.contains("1234567890") && !text.contains("4321"), "{text}");
     }
 }
 
@@ -470,16 +440,24 @@ async fn secrets_set_reads_fields_from_stdin() {
     let server = serve("POST", "/secrets", 201, secret()).await;
     let r = openintents(
         &server,
-        &["secrets", "set", "--kind", "card", "--label", "Work Visa", "--stdin"],
-        r#"{"number":"4242424242424242"}"#,
+        &[
+            "secrets",
+            "set",
+            "--kind",
+            "loyalty",
+            "--label",
+            "Flying Blue",
+            "--stdin",
+        ],
+        r#"{"member_number":"1234567890"}"#,
     )
     .await;
     assert_eq!(r.code, 0, "{}", r.err);
     assert_eq!(
         sent(&server).await.1.unwrap()["fields"],
-        json!({ "number": "4242424242424242" })
+        json!({ "member_number": "1234567890" })
     );
-    assert!(!r.out.contains("4242424242424242") && !r.err.contains("4242424242424242"));
+    assert!(!r.out.contains("1234567890") && !r.err.contains("1234567890"));
 }
 
 #[tokio::test]
@@ -491,17 +469,17 @@ async fn secrets_set_does_not_repeat_a_value_in_an_error() {
             "secrets",
             "set",
             "--kind",
-            "card",
+            "loyalty",
             "--label",
             "x",
             "--field",
-            "4242424242424242",
+            "1234567890",
         ],
         "",
     )
     .await;
     assert_eq!(r.code, 1);
-    assert!(!r.err.contains("4242424242424242"), "{}", r.err);
+    assert!(!r.err.contains("1234567890"), "{}", r.err);
     assert!(server.received_requests().await.unwrap().is_empty());
 }
 
@@ -510,14 +488,17 @@ async fn secrets_list_get_delete_and_request() {
     let server = serve("GET", "/secrets", 200, json!({ "object": "list", "data": [secret()] })).await;
     let r = openintents(
         &server,
-        &["secrets", "list", "--kind", "card", "--customer", "cus_1"],
+        &["secrets", "list", "--kind", "loyalty", "--customer", "cus_1"],
         "",
     )
     .await;
     assert_eq!(r.code, 0, "{}", r.err);
-    assert!(r.out.contains("Work Visa") && r.out.contains("Visa ••4242"));
+    assert!(r.out.contains("Flying Blue") && r.out.contains("••7890"));
     let (line, _) = sent(&server).await;
-    assert!(line.contains("customer=cus_1") && line.contains("kind=card"), "{line}");
+    assert!(
+        line.contains("customer=cus_1") && line.contains("kind=loyalty"),
+        "{line}"
+    );
 
     let server = serve("GET", "/secrets/sec_1", 200, secret()).await;
     assert_eq!(openintents(&server, &["secrets", "get", "sec_1"], "").await.code, 0);
@@ -530,13 +511,13 @@ async fn secrets_list_get_delete_and_request() {
         .await;
     assert_eq!(openintents(&server, &["secrets", "delete", "sec_1"], "").await.code, 0);
 
-    let created = json!({ "id": "sr_1", "object": "secret_request", "customer": "cus_1", "kinds": ["card", "address"],
+    let created = json!({ "id": "sr_1", "object": "secret_request", "customer": "cus_1", "kinds": ["contact", "address"],
                           "url": "https://openintents.io/secrets/abc", "expires_at": "x" });
     let server = serve("POST", "/customers/cus_1/secret_requests", 201, created).await;
     let r = openintents(
         &server,
         &[
-            "secrets", "request", "cus_1", "--kind", "card", "--kind", "address", "--ttl", "3600",
+            "secrets", "request", "cus_1", "--kind", "contact", "--kind", "address", "--ttl", "3600",
         ],
         "",
     )
@@ -544,18 +525,18 @@ async fn secrets_list_get_delete_and_request() {
     assert_eq!(r.code, 0, "{}", r.err);
     assert_eq!(
         sent(&server).await.1.unwrap(),
-        json!({ "kinds": ["card", "address"], "ttl_seconds": 3600 })
+        json!({ "kinds": ["contact", "address"], "ttl_seconds": 3600 })
     );
     assert!(r.out.contains("https://openintents.io/secrets/abc"));
 }
 
 #[tokio::test]
 async fn login_saves_the_pasted_key_for_later_commands() {
-    let server = serve("GET", "/balance", 200, json!({ "available": 1000, "currency": "usd" })).await;
+    let server = serve("GET", "/intents", 200, json!({ "object": "list", "data": [] })).await;
     let base = server.uri();
     let config = std::env::temp_dir().join(format!("oi-login-{}", uuid_like()));
     let config_for_login = config.clone();
-    let (login, balance) = tokio::task::spawn_blocking(move || {
+    let (login, list) = tokio::task::spawn_blocking(move || {
         let run = |args: &[&str], stdin: &str, key: Option<&str>| {
             let mut cmd = Command::new(env!("CARGO_BIN_EXE_openintents"));
             cmd.args(args)
@@ -574,7 +555,7 @@ async fn login_saves_the_pasted_key_for_later_commands() {
         };
         (
             run(&["login", "--no-open"], " oi_test_abc123 \n", None),
-            run(&["balance"], "", None),
+            run(&["list"], "", None),
         )
     })
     .await
@@ -591,7 +572,7 @@ async fn login_saves_the_pasted_key_for_later_commands() {
         use std::os::unix::fs::PermissionsExt;
         assert_eq!(std::fs::metadata(&file).unwrap().permissions().mode() & 0o777, 0o600);
     }
-    assert!(balance.status.success(), "{}", String::from_utf8_lossy(&balance.stderr));
+    assert!(list.status.success(), "{}", String::from_utf8_lossy(&list.stderr));
     let seen = server.received_requests().await.unwrap();
     assert_eq!(
         seen[0].headers.get("authorization").unwrap().to_str().unwrap(),

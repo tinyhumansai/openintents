@@ -43,8 +43,8 @@ async with AsyncOpenIntents() as oi:
 ```
 
 Also: `oi.intents.get(id)`, `oi.intents.list(status=..., customer=..., limit=...)`,
-`oi.intents.list_all()`, `oi.intents.cancel(id)`, `oi.balance.get(customer=...)`,
-`oi.customers.create/get/update/list/list_all` and `oi.topups.create/get`.
+`oi.intents.list_all()`, `oi.intents.cancel(id)` and
+`oi.customers.create/get/update/list/list_all`.
 Pass `customer=` to `intents.create` to buy for one of your customers.
 Errors raise `OpenIntentsError` (`status`, `type`, `code`, `param`, and
 `lease` with `profile_busy`); 429s, 5xx and network errors are retried with
@@ -104,8 +104,8 @@ a `payment` question shows the shop's payment code at
 ## Secrets, sign-ins and live links
 
 ```python
-card = oi.secrets.create(kind="card", label="Work Visa", fields={"number": "4242424242424242"}, shops=["airfrance.com"])
-oi.intents.create("book the 7am flight", secrets=[card["id"]], shops=["airfrance.com"])
+miles = oi.secrets.create(kind="loyalty", label="Flying Blue", fields={"program": "Flying Blue", "member_number": "1234567890"}, shops=["airfrance.com"])
+oi.intents.create("book the 7am flight", secrets=[miles["id"]], shops=["airfrance.com"])
 
 ask = oi.customers.create_secret_request("cus_4b81d0", kinds=["identity_document"])  # send ask["url"]
 sign_in = oi.sign_ins.create(shop_url="https://www.amazon.com/", customer="cus_4b81d0")  # send sign_in["url"]

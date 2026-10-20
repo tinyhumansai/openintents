@@ -3,7 +3,7 @@
 
 use openintents::{
     Customer, InputKind, Intent, LiveLink, PortalSession, Profile, Secret, SecretRequestCreated, Session,
-    SessionCommandResult, SignIn, Topup,
+    SessionCommandResult, SignIn,
 };
 use serde::Serialize;
 
@@ -177,22 +177,6 @@ pub fn profile(p: &Profile, json: bool) {
                 .as_ref()
                 .map_or("your account".to_owned(), |c| format!("customer {c}"))
         )
-    });
-}
-
-pub fn topup(t: &Topup, json: bool) {
-    out(t, json, || {
-        let status = tag(&t.status);
-        let mut text = format!(
-            "{}  {status}  {}{}",
-            t.id,
-            money(t.amount, &t.currency),
-            t.customer.as_ref().map_or(String::new(), |c| format!("  customer {c}"))
-        );
-        if status == "open" {
-            text += &format!("\n  pay here: {}", t.url);
-        }
-        text
     });
 }
 
