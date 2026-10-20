@@ -3743,12 +3743,8 @@ components:
           description: For the customer only.
         status:
           type: string
-          description: |
-            `open` until the wallet needs nothing more (`completed`), the
-            purchase it was made for ends without being paid (`ended`: it was
-            declined, failed, cancelled or ran out), or it runs out
-            (`expired`). Only `open` takes the customer anywhere.
-          enum: [open, completed, ended, expired]
+          description: "`open` until the wallet needs nothing more (`completed`) or it runs out (`expired`)."
+          enum: [open, completed, expired]
         expires_at:
           type: string
           format: date-time
