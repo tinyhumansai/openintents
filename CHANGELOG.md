@@ -30,6 +30,8 @@ balance and its top-ups are gone, and so are stored cards.
   anything is paid, nothing the payer does in their wallet lifts them, and an
   intent over one fails with `limit_exceeded`.
 - A receipt's `fee` is `0` for now.
+- A wallet link's `status` may be `ended`: the purchase it was made for
+  ended without being paid, so the link no longer opens.
 
 ## [0.2.0]
 
