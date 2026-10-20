@@ -37,6 +37,7 @@ and CLI README follows it. Each guide is also served as raw Markdown at
 | Keep a payer's logins between intents, or drive their browser | [Browser profiles](https://openintents.io/docs/profiles) and [Browser sessions](https://openintents.io/docs/sessions) |
 | Follow a timeline live | [Events & live streams](https://openintents.io/docs/events) |
 | Pay from a balance or a payment link | [Balance & payments](https://openintents.io/docs/wallets) |
+| Have a customer set up the wallet they pay from, before their first purchase | [Balance & payments](https://openintents.io/docs/wallets) |
 | Use the command line | [CLI](https://openintents.io/docs/cli) |
 
 If a guide and the spec ever disagree, the spec wins; please open an issue.
