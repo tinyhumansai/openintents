@@ -1,6 +1,5 @@
 use std::time::{Duration, Instant};
 
-use rand::Rng;
 use reqwest::{header, Method, RequestBuilder, StatusCode};
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
@@ -723,7 +722,7 @@ pub(crate) fn backoff(attempt: u32, retry_after: Option<f64>) -> Duration {
         return Duration::from_secs_f64(secs);
     }
     let base = (0.5 * 2f64.powi(attempt as i32)).min(8.0);
-    Duration::from_secs_f64(base * rand::thread_rng().gen_range(0.75..1.25))
+    Duration::from_secs_f64(base * rand::random_range(0.75..1.25))
 }
 
 /// Configures a [`Client`].
@@ -770,5 +769,26 @@ impl ClientBuilder {
             timeout: self.timeout,
             max_retries: self.max_retries,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::backoff;
+    use std::time::Duration;
+
+    #[test]
+    fn retry_backoff_keeps_exponential_jitter_within_bounds_and_caps_the_base() {
+        for (attempt, base) in [(0, 0.5), (1, 1.0), (2, 2.0), (3, 4.0), (4, 8.0), (5, 8.0)] {
+            for _ in 0..100 {
+                let delay = backoff(attempt, None).as_secs_f64();
+                assert!(delay >= base * 0.75 && delay <= base * 1.25);
+            }
+        }
+    }
+
+    #[test]
+    fn retry_backoff_honors_retry_after_without_jitter() {
+        assert_eq!(backoff(5, Some(0.125)), Duration::from_millis(125));
     }
 }
