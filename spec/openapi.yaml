@@ -977,6 +977,91 @@ paths:
         default:
           $ref: "#/components/responses/Error"
 
+  /customers/{id}/wallet_links:
+    post:
+      operationId: createWalletLink
+      summary: Send a customer to set up their wallet
+      description: |
+        Makes a link to a page where the customer sets up the wallet their
+        purchases are paid from: they connect it (signing in, or making an
+        account, with the email and name you gave the customer already filled
+        in), then add money or raise their limits if a purchase of `amount`
+        would need it. The page runs only the steps left and skips the ones
+        done, so send it during your own sign-up to have the customer ready
+        before their first purchase. Without the link, the first purchase
+        that needs the wallet asks for it (`requires_payment`).
+
+        `url` is the customer's alone and works until `expires_at`, or until
+        the wallet needs nothing more (`status: completed`). It takes no
+        `Idempotency-Key`, since the link is the capability and is not kept
+        in a stored response. Test keys never pay, so a test customer's page
+        has nothing to set up. Once the customer connects,
+        `wallet.connected` is sent.
+      parameters:
+        - $ref: "#/components/parameters/CustomerId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateWalletLinkParams"
+      responses:
+        "201":
+          description: The link, `open`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WalletLink"
+        "404":
+          description: "`not_found`: no such customer in your account."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "4XX":
+          $ref: "#/components/responses/Error"
+        default:
+          $ref: "#/components/responses/Error"
+
+  /customers/{id}/wallet:
+    get:
+      operationId: getCustomerWallet
+      summary: Retrieve where a customer's wallet stands
+      description: |
+        How far the customer has set up their wallet, and the one step left
+        before a purchase of `amount` could be paid (or, without `amount`,
+        before they are set up at all). Never their balance or limits: those
+        are the customer's own.
+
+        Answers `503` with `code: wallet_unavailable` when wallets cannot be
+        read right now.
+      parameters:
+        - $ref: "#/components/parameters/CustomerId"
+        - name: amount
+          in: query
+          required: false
+          description: A purchase, in cents, to check the wallet against.
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        "200":
+          description: The wallet.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Wallet"
+        "503":
+          description: "`wallet_unavailable`."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "4XX":
+          $ref: "#/components/responses/Error"
+        default:
+          $ref: "#/components/responses/Error"
+
   /secrets:
     post:
       operationId: createSecret
@@ -1576,6 +1661,29 @@ webhooks:
           application/json:
             schema:
               $ref: "#/components/schemas/SecretRequestWebhookEvent"
+      responses:
+        "200":
+          description: Received.
+  walletEvent:
+    post:
+      operationId: walletEvent
+      summary: A customer connected their wallet
+      description: |
+        Sent when a customer (or your account, buying for itself) connects
+        the wallet their purchases are paid from. Same signature as
+        `intentEvent`. Only endpoints that list the type receive it.
+      parameters:
+        - name: OpenIntents-Signature
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WalletWebhookEvent"
       responses:
         "200":
           description: Received.
@@ -3725,6 +3833,122 @@ components:
           format: date-time
         data:
           $ref: "#/components/schemas/SecretRequest"
+
+    CreateWalletLinkParams:
+      type: object
+      additionalProperties: false
+      properties:
+        amount:
+          type: integer
+          minimum: 1
+          description: |
+            A purchase, in cents, to have the wallet ready for: the page then
+            also asks for any money or limits that purchase would need.
+        return_url:
+          type: string
+          format: uri
+          description: A public `https` URL the page offers a way back to.
+        ttl_seconds:
+          type: integer
+          minimum: 60
+          maximum: 604800
+          default: 86400
+          description: How long the link works.
+
+    WalletLink:
+      type: object
+      description: A link for a customer to set up their wallet.
+      required: [id, object, customer, url, status, expires_at]
+      properties:
+        id:
+          type: string
+          examples: [wl_7c2e91d04b8a3f56]
+        object:
+          type: string
+          const: wallet_link
+        customer:
+          type: string
+        amount:
+          type: [integer, "null"]
+        url:
+          type: string
+          format: uri
+          description: For the customer only.
+        status:
+          type: string
+          description: "`open` until the wallet needs nothing more (`completed`) or it runs out (`expired`)."
+          enum: [open, completed, expired]
+        expires_at:
+          type: string
+          format: date-time
+
+    WalletStep:
+      type: object
+      description: |
+        The one step left. `connect`: sign in to the wallet, or make one.
+        `set_limits`: set limits, or raise them for this purchase.
+        `add_money`: add money, `amount` cents of it when a purchase asked.
+        `identity_check`: confirm who they are, for a purchase this large.
+      required: [kind]
+      properties:
+        kind:
+          type: string
+          enum: [connect, set_limits, add_money, identity_check]
+        amount:
+          type: [integer, "null"]
+
+    Wallet:
+      type: object
+      description: Where a customer's wallet stands.
+      required: [object, customer, status, next_step]
+      properties:
+        object:
+          type: string
+          const: wallet
+        customer:
+          type: string
+        status:
+          type: string
+          description: |
+            How far they got, in order: `not_connected`, `pending` (signing
+            in), `connected`, `limits_set`, `funded` (money to spend, or
+            automatic top-ups on), `identity_checked`. `not_needed` for test
+            keys, which never pay.
+          enum: [not_needed, not_connected, pending, connected, limits_set, funded, identity_checked]
+        next_step:
+          oneOf:
+            - $ref: "#/components/schemas/WalletStep"
+            - type: "null"
+
+    WalletWebhookEvent:
+      type: object
+      description: A customer connected their wallet. Sent only to endpoints that list the type.
+      required: [id, type, created_at, data]
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          enum:
+            - wallet.connected
+        created_at:
+          type: string
+          format: date-time
+        data:
+          type: object
+          required: [object, customer, status, livemode]
+          properties:
+            object:
+              type: string
+              const: wallet
+            customer:
+              type: [string, "null"]
+              description: The customer, or `null` for your account buying for itself.
+            status:
+              type: string
+              const: connected
+            livemode:
+              type: boolean
 
     WebhookTestEvent:
       type: object
