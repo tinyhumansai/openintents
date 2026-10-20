@@ -22,12 +22,22 @@
 //!
 //! Preview: the API is still being built and may change before launch.
 
+// `Error::Api` keeps the API's error fields by value, the lease included.
+// Errors are rare: moving a larger one now and then costs less than making
+// every caller unbox it.
+#![allow(clippy::result_large_err)]
+
 mod client;
 mod error;
+mod sse;
+mod stream;
 pub mod types;
+pub mod types_v1;
 pub mod webhooks;
 
 pub use client::{Client, ClientBuilder, WaitOptions, DEFAULT_BASE_URL};
 pub use error::{Error, Result};
+pub use stream::EventStream;
 pub use types::*;
+pub use types_v1::*;
 pub use webhooks::{sign_webhook, verify_webhook};
