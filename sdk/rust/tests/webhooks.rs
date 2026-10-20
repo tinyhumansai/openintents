@@ -63,5 +63,7 @@ fn verifies_an_independently_signed_webhook() {
     let header = "t=1700000000,v1=31803bafa1c9d0226517b39774c4b887a22916d9e3ea5ef08bcbd166647af6f3";
     let event = verify_webhook_at(BODY, Some(header), SECRET, 300, 1_700_000_000).unwrap();
     assert_eq!(event.id, "evt_1");
+    assert_eq!(event.kind, "intent.completed");
     assert_eq!(event.intent().unwrap().status, IntentStatus::Completed);
+    assert!(verify_webhook_at(BODY, Some(header), "whsec_other", 300, 1_700_000_000).is_err());
 }
