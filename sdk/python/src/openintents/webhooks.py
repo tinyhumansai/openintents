@@ -2,6 +2,8 @@
 
 The `OpenIntents-Signature` header is `t=<unix seconds>,v1=<hex>`, where v1 is
 HMAC-SHA256 of "{t}.{raw body}" keyed with your endpoint's `whsec_` secret.
+While a secret is being rotated the header carries one v1 for each secret that
+still signs ("t=...,v1=...,v1=..."), and either secret verifies it.
 """
 
 from __future__ import annotations
@@ -37,15 +39,19 @@ def verify_webhook(
     body = raw_body.encode() if isinstance(raw_body, str) else raw_body
     if not signature_header:
         raise WebhookVerificationError("Missing OpenIntents-Signature header")
-    parts = dict(p.strip().split("=", 1) for p in signature_header.split(",") if "=" in p)
+    # After a secret rotation the header holds a v1 for each secret that still signs.
+    pairs = [p.strip().split("=", 1) for p in signature_header.split(",") if "=" in p]
+    v1s = [v.lower() for k, v in pairs if k == "v1"]
     try:
-        t = int(parts["t"])
-        v1 = parts["v1"].lower()
-    except (KeyError, ValueError) as exc:
+        t = int(next(v for k, v in pairs if k == "t"))
+    except (StopIteration, ValueError) as exc:
         raise WebhookVerificationError("Malformed OpenIntents-Signature header") from exc
+    if not v1s:
+        raise WebhookVerificationError("Malformed OpenIntents-Signature header")
     if abs((now if now is not None else time.time()) - t) > tolerance:
         raise WebhookVerificationError("Signature timestamp outside tolerance")
-    if not hmac.compare_digest(_sign(secret, t, body), v1):
+    expected = _sign(secret, t, body)
+    if not any([hmac.compare_digest(expected, v1) for v1 in v1s]):
         raise WebhookVerificationError("Signature mismatch")
     return json.loads(body)
 
