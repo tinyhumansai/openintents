@@ -2,6 +2,35 @@
 
 All three SDKs share one version. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Removed (breaking)
+
+Live purchases are paid only from the payer's own wallet, so the API's own
+balance and its top-ups are gone, and so are stored cards.
+
+- API: `GET /balance`, `POST /topups` and `GET /topups/{id}`, with the
+  `Balance`, `Topup` and `CreateTopupParams` schemas. The MCP tools
+  `get_balance`, `create_topup` and `get_topup` are gone too.
+- API: the payment reason `insufficient_balance`; a purchase no longer waits
+  on a balance. The other reasons stay.
+- API: the secret kind `card`, the `cards_unavailable` error code and the
+  `fund` use of a secret. A secret request can no longer ask for a card.
+- SDKs: `balance.get` (TypeScript, Python), `balance` and `balance_for`
+  (Rust), `topups.create` and `topups.get` (TypeScript, Python),
+  `create_topup`, `create_topup_idempotent` and `get_topup` (Rust), the
+  `Balance`, `BalanceParams`, `Topup`, `TopupStatus` and `CreateTopupParams`
+  types, and `card` from `SecretKind`.
+- CLI (npm and Rust): the `balance` and `topups` commands.
+
+### Changed
+
+- Customer `limits` (`per_intent`, `monthly`) count the cart's total of each
+  purchase the payer's wallet paid this UTC month. They are checked before
+  anything is paid, nothing the payer does in their wallet lifts them, and an
+  intent over one fails with `limit_exceeded`.
+- A receipt's `fee` is `0` for now.
+
 ## [0.2.0]
 
 ### Added

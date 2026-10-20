@@ -20,8 +20,7 @@ transactions carry a 5% fee that is shown on every receipt.
 
 Prefer the MCP tools (`create_intent`, `wait_for_intent`, `get_intent`,
 `answer_input`, `list_intents`, `get_intent_events`, `cancel_intent`,
-`get_balance`, `create_topup`, `get_topup`, `create_secret`, `list_secrets`,
-`delete_secret`). The server takes the user's API
+`create_secret`, `list_secrets`, `delete_secret`). The server takes the user's API
 key (made at https://openintents.io/dashboard/api-keys), sent as
 `Authorization: Bearer <key>`. If the tools aren't available, with the key in
 `OPENINTENTS_API_KEY`:
@@ -118,7 +117,7 @@ CLI exit codes: 0 completed, 1 failed or error, 2 needs payment, 3 cancelled,
   comes from, or `end_user_ip` (the user's own address) to have it inferred.
   The intent says which was used in `country` and `country_source`.
 - For details the purchase needs and that you would not put in a prompt
-  (an address, contact details, a card, a loyalty number, a shop password),
+  (an address, contact details, a loyalty number, a shop password),
   store them once with `create_secret` (a `kind`, a `label`, and `fields`)
   and name them on the intent with `secrets: ["sec_..."]` and the `shops` they
   may be filled on. A secret is write-only: you only ever get a label, a mask
