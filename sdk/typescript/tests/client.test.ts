@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { OpenIntents, OpenIntentsError, WaitTimeoutError, type Intent } from "../src/index.js";
+import { OpenIntents, OpenIntentsError, WaitTimeoutError, type InputRequest, type Intent } from "../src/index.js";
 
 const intent = (over: Partial<Intent> = {}): Intent => ({
   id: "int_1",
@@ -103,6 +103,154 @@ describe("OpenIntents client", () => {
     expect(got.status).toBe("completed");
   });
 
+  it("wait returns at requires_login by default, with the link to pass on", async () => {
+    const { fetch } = mockFetch(
+      { body: intent({ status: "running" }) },
+      {
+        body: intent({
+          status: "requires_login",
+          sign_in: { url: "https://openintents.io/signin/sgn_1", shop: "amazon.com", expires_at: "x" },
+        }),
+      },
+    );
+    const got = await make(fetch).intents.wait("int_1", { intervalMs: 1 });
+    expect(got.status).toBe("requires_login");
+    expect(got.sign_in?.url).toBe("https://openintents.io/signin/sgn_1");
+    expect(got.sign_in?.shop).toBe("amazon.com");
+  });
+
+  it("wait keeps polling past a sign-in when asked", async () => {
+    const { fetch } = mockFetch(
+      { body: intent({ status: "requires_login" }) },
+      { body: intent({ status: "queued" }) },
+      { body: intent({ status: "completed" }) },
+    );
+    const got = await make(fetch).intents.wait("int_1", { intervalMs: 1, returnOnSignIn: false });
+    expect(got.status).toBe("completed");
+  });
+
+  it("sends sign_in_link when creating an intent", async () => {
+    const { fetch, calls } = mockFetch({ status: 201, body: intent({ status: "queued" }) });
+    await make(fetch).intents.create({ intent: "a lamp", sign_in_link: false });
+    expect(JSON.parse(String(calls[0]!.init?.body))).toMatchObject({ intent: "a lamp", sign_in_link: false });
+  });
+
+  it("wait returns at requires_input by default, with what to ask", async () => {
+    const inputRequest = {
+      id: "inp_1",
+      kind: "code" as const,
+      shop: "blinkit.com",
+      prompt: "Enter the code blinkit.com just sent to your phone.",
+      options: [],
+      choices: [],
+      fields: [],
+      expects: "text" as const,
+      channel: "sms" as const,
+      length: 6,
+      url: "https://openintents.io/input/inp_1",
+      expires_at: "x",
+      attempts_left: 2,
+    };
+    const { fetch } = mockFetch(
+      { body: intent({ status: "running" }) },
+      { body: intent({ status: "requires_input", input_request: inputRequest }) },
+    );
+    const got = await make(fetch).intents.wait("int_1", { intervalMs: 1 });
+    expect(got.status).toBe("requires_input");
+    expect(got.input_request).toEqual(inputRequest);
+  });
+
+  it("wait returns a detail with its options, answered with one of them", async () => {
+    const detail = {
+      id: "inp_2",
+      kind: "detail" as const,
+      shop: "flipkart.com",
+      prompt: "Which size would you like?",
+      options: ["S", "M", "L"],
+      choices: [],
+      fields: [],
+      expects: "text" as const,
+      channel: null,
+      length: null,
+      url: "https://openintents.io/input/inp_2",
+      expires_at: "x",
+      attempts_left: 2,
+    };
+    const { fetch, calls } = mockFetch(
+      { body: intent({ status: "requires_input", input_request: detail }) },
+      { body: intent({ status: "running" }) },
+    );
+    const oi = make(fetch);
+    const got = await oi.intents.wait("int_1", { intervalMs: 1 });
+    expect(got.input_request).toEqual(detail);
+    expect(got.input_request?.kind).toBe("detail");
+    expect(got.input_request?.options).toEqual(["S", "M", "L"]);
+    await oi.intents.input("int_1", { input: got.input_request!.id, value: "M" });
+    expect(JSON.parse(calls[1]!.init.body as string)).toEqual({ input: "inp_2", value: "M" });
+  });
+
+  it("wait keeps polling past an input request when asked", async () => {
+    const { fetch } = mockFetch(
+      { body: intent({ status: "requires_input" }) },
+      { body: intent({ status: "running" }) },
+      { body: intent({ status: "completed" }) },
+    );
+    const got = await make(fetch).intents.wait("int_1", { intervalMs: 1, returnOnInput: false });
+    expect(got.status).toBe("completed");
+  });
+
+  it("sends sign_in_agent and sign_in_hint when creating an intent", async () => {
+    const { fetch, calls } = mockFetch({ status: 201, body: intent({ status: "queued" }) });
+    await make(fetch).intents.create({ intent: "a lamp", sign_in_agent: false, sign_in_hint: { phone: "+91 98765 43210" } });
+    expect(JSON.parse(String(calls[0]!.init?.body))).toEqual({
+      intent: "a lamp",
+      sign_in_agent: false,
+      sign_in_hint: { phone: "+91 98765 43210" },
+    });
+  });
+
+  it("sends pay_at_shop and reads a payment request's image_url", async () => {
+    const payment: InputRequest = {
+      id: "inp_1", kind: "payment", shop: "blinkit.com", prompt: "Pay 249.00 INR", options: [], choices: [], fields: [],
+      expects: "text", channel: null, length: null, url: "https://openintents.io/input/inp_1",
+      image_url: "https://openintents.io/input/inp_1/code.jpg", expires_at: "2026-10-01T00:05:00Z", attempts_left: 1,
+    };
+    const { fetch, calls } = mockFetch({ status: 201, body: intent({ status: "requires_input", input_request: payment }) });
+    const got = await make(fetch).intents.create({ intent: "a lamp", pay_at_shop: true });
+    expect(JSON.parse(String(calls[0]!.init?.body))).toEqual({ intent: "a lamp", pay_at_shop: true });
+    expect(got.input_request?.kind).toBe("payment");
+    expect(got.input_request?.image_url).toBe("https://openintents.io/input/inp_1/code.jpg");
+  });
+
+  it("answers an input request with a value, a decline or done", async () => {
+    const running = { body: intent({ status: "running" }) };
+    const { fetch, calls } = mockFetch(running, running, running);
+    const oi = make(fetch);
+    const got = await oi.intents.input("int_1", { input: "inp_1", value: "481516" });
+    expect(got.status).toBe("running");
+    const { url, init } = calls[0]!;
+    expect(url).toBe("https://api.test/v1/intents/int_1/input");
+    expect(init.method).toBe("POST");
+    expect((init.headers as Record<string, string>)["Idempotency-Key"]).toMatch(/^[0-9a-f-]{36}$/);
+    expect(JSON.parse(init.body as string)).toEqual({ input: "inp_1", value: "481516" });
+    await oi.intents.input("int_1", { input: "inp_1", decline: true });
+    expect(JSON.parse(calls[1]!.init.body as string)).toEqual({ input: "inp_1", decline: true });
+    await oi.intents.input("int_1", { input: "inp_2", done: true });
+    expect(JSON.parse(calls[2]!.init.body as string)).toEqual({ input: "inp_2", done: true });
+  });
+
+  it("throws input_not_waiting for an answer that comes too late", async () => {
+    const { fetch } = mockFetch({
+      status: 409,
+      body: { error: { type: "conflict", code: "input_not_waiting", message: "That request has expired." } },
+    });
+    const err = await make(fetch)
+      .intents.input("int_1", { input: "inp_1", value: "481516" })
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(OpenIntentsError);
+    expect((err as OpenIntentsError).code).toBe("input_not_waiting");
+  });
+
   it("wait times out", async () => {
     const { fetch } = mockFetch({ body: intent({ status: "running" }) });
     await expect(make(fetch).intents.wait("int_1", { intervalMs: 5, timeoutMs: 1 })).rejects.toBeInstanceOf(WaitTimeoutError);
@@ -113,5 +261,70 @@ describe("OpenIntents client", () => {
     const b = await make(fetch).balance.get();
     expect(b.available).toBe(24450);
     expect(calls[0]!.url).toBe("https://api.test/v1/balance");
+  });
+
+  it("gets a customer's balance and buys for a customer", async () => {
+    const { fetch, calls } = mockFetch(
+      { body: { object: "balance", available: 0, held: 450, currency: "usd", customer: "cus_1" } },
+      { status: 201, body: intent({ customer: "cus_1" }) },
+      { body: { object: "list", data: [], next_cursor: null } },
+    );
+    const oi = make(fetch);
+    const b = await oi.balance.get({ customer: "cus_1" });
+    expect(b.held).toBe(450);
+    expect(calls[0]!.url).toBe("https://api.test/v1/balance?customer=cus_1");
+    const created = await oi.intents.create({ intent: "flat white", customer: "cus_1" });
+    expect(created.customer).toBe("cus_1");
+    expect(JSON.parse(calls[1]!.init.body as string)).toEqual({ intent: "flat white", customer: "cus_1" });
+    await oi.intents.list({ customer: "cus_1" });
+    expect(calls[2]!.url).toBe("https://api.test/v1/intents?customer=cus_1");
+  });
+
+  it("creates, updates and lists customers", async () => {
+    const customer = { id: "cus_1", object: "customer", external_id: "u-42", name: null, email: null, metadata: {}, created_at: "x" };
+    const { fetch, calls } = mockFetch(
+      { status: 201, body: customer },
+      { body: { ...customer, name: "Ada" } },
+      { body: { object: "list", data: [customer], next_cursor: null } },
+      { body: customer },
+    );
+    const oi = make(fetch);
+    await oi.customers.create({ external_id: "u-42" });
+    expect(calls[0]!.url).toBe("https://api.test/v1/customers");
+    expect(calls[0]!.init.method).toBe("POST");
+    expect((calls[0]!.init.headers as Record<string, string>)["Idempotency-Key"]).toMatch(/^[0-9a-f-]{36}$/);
+    const updated = await oi.customers.update("cus_1", { name: "Ada" });
+    expect(updated.name).toBe("Ada");
+    expect(calls[1]!.init.method).toBe("PATCH");
+    expect(calls[1]!.url).toBe("https://api.test/v1/customers/cus_1");
+    expect(JSON.parse(calls[1]!.init.body as string)).toEqual({ name: "Ada" });
+    const page = await oi.customers.list({ external_id: "u-42" });
+    expect(page.data[0]!.external_id).toBe("u-42");
+    expect(calls[2]!.url).toBe("https://api.test/v1/customers?external_id=u-42");
+    await oi.customers.get("cus_1");
+    expect(calls[3]!.url).toBe("https://api.test/v1/customers/cus_1");
+  });
+
+  it("creates and retrieves a top-up", async () => {
+    const topup = {
+      id: "pay_1",
+      object: "topup",
+      amount: 5000,
+      currency: "usd",
+      customer: null,
+      status: "open",
+      url: "https://openintents.io/api/pay/pay_1",
+      expires_at: "x",
+      created_at: "x",
+    };
+    const { fetch, calls } = mockFetch({ status: 201, body: topup }, { body: { ...topup, status: "paid" } });
+    const oi = make(fetch);
+    const created = await oi.topups.create({ amount: 5000 });
+    expect(created.url).toContain("/api/pay/");
+    expect(JSON.parse(calls[0]!.init.body as string)).toEqual({ amount: 5000 });
+    expect((calls[0]!.init.headers as Record<string, string>)["Idempotency-Key"]).toBeTruthy();
+    const got = await oi.topups.get("pay_1");
+    expect(got.status).toBe("paid");
+    expect(calls[1]!.url).toBe("https://api.test/v1/topups/pay_1");
   });
 });
