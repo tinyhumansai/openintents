@@ -4,9 +4,8 @@
 
 **The agentic API to buy anything.** Send one intent in plain language, like
 _"book me a trip to Bali"_ or _"get my lunch sorted: a bacon cheeseburger"_.
-The OpenIntents API does the agentic work in a real browser, pays from an
-account or customer balance or the payer's own wallet, and returns a
-structured receipt.
+The OpenIntents API does the agentic work in a real browser, pays from the
+payer's own wallet, and returns a structured receipt.
 Inference, browser, compute and bandwidth are free.
 
 This repository holds the open-source client side: SDKs for TypeScript,
@@ -87,12 +86,12 @@ openintents run "restock the fridge for the week" --max 120 --wait
    optional structured `context`.
 2. **The API does the agentic work.** Behind the endpoint, a real browser
    finds the merchant, picks the item and gets to checkout.
-3. **Pay from a balance or the payer's wallet.** By default, intents use
-   your account's balance, or the customer's balance when you pass `customer`.
-   Set `require_payment_link` to request a payment link instead. Wallet-backed
-   purchases use the payer's own wallet, within the limits they set there.
+3. **Pay from the payer's wallet.** Intents use your account's wallet, or
+   the customer's wallet when you pass `customer`, within the limits the
+   payer sets there. Set `require_payment_link` to request a payment link
+   before paying, even when the wallet is ready.
    If payment needs a step first, the intent returns `requires_payment` with
-   a `payment_url` and a `reason`, such as `insufficient_balance`. For wallet
+   a `payment_url` and a `reason`, such as `connect_wallet` or `add_money`. For wallet
    steps (connecting it, adding money, an identity check), the intent carries
    on by itself once the payer is done.
 4. **Get the receipt.** Merchant, items, total, fee and confirmation, as JSON.
