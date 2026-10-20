@@ -1854,6 +1854,20 @@ components:
             password always use the sign-in link. Where it is on, the agent
             may also ask the payer for a `detail` the purchase needs, in the
             same way.
+        pay_at_shop:
+          type: boolean
+          default: false
+          description: |
+            `true`: the payer pays the shop themselves. At the payment step
+            the intent waits in `requires_input` with a `payment` request
+            whose `image_url` is a picture of the shop's own payment code (a
+            UPI QR code); the payer scans it in their own app and you answer
+            `done` once they paid, or they tap the button on `url`. The order
+            then goes through, and only the fee comes from your balance (none
+            when the intent's currency is not your balance's). Live keys only:
+            a test key's intent stops at the payment step as always. Where it
+            is not available for your key, creating the intent is
+            `503 pay_at_shop_unavailable`.
         sign_in_hint:
           type: object
           additionalProperties: false
@@ -2118,7 +2132,13 @@ components:
             bound to the shop; the request has no `choices` or `fields`, and
             the answer is never returned. `POST /intents/{id}/input` refuses
             any answer but a decline (`422 answer_on_page`).
-          enum: [phone, email, code, approval, detail, sensitive]
+
+            `payment`: the payer pays the shop themselves (`pay_at_shop`).
+            `image_url` is a picture of the shop's payment code to scan with
+            a UPI app, and `prompt` names the amount. Answer `done` once they
+            paid, or `decline`; it takes no value. It expires after 5
+            minutes, and the agent may show a fresh code once more.
+          enum: [phone, email, code, approval, detail, sensitive, payment]
         shop:
           type: string
           description: The shop's registrable domain, such as `blinkit.com`.
@@ -2178,6 +2198,13 @@ components:
           description: |
             A page where the payer types the answer themselves. Like a
             sign-in link, it is theirs only: whoever has it can answer.
+        image_url:
+          type: string
+          format: uri
+          description: |
+            A `payment`'s picture (JPEG) of the shop's payment code, for the
+            payer to scan; served only while the request waits. Absent for
+            the other kinds. Like `url`, whoever has it can see it.
         expires_at:
           type: string
           format: date-time
