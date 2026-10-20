@@ -8,10 +8,9 @@ use serde::Deserialize;
 use crate::error::{Error, Result};
 use crate::stream::EventStream;
 use crate::types::{
-    AnswerInput, Balance, CreateIntent, CreateProfile, CreateSession, CreateTopup, Customer, CustomerList,
-    CustomerParams, EventList, Intent, IntentList, IntentStatus, ListCustomers, ListEvents, ListIntents, ListProfiles,
-    ListSessions, Profile, ProfileLease, ProfileList, Session, SessionCommand, SessionCommandResult, SessionList,
-    Topup,
+    AnswerInput, CreateIntent, CreateProfile, CreateSession, Customer, CustomerList, CustomerParams, EventList, Intent,
+    IntentList, IntentStatus, ListCustomers, ListEvents, ListIntents, ListProfiles, ListSessions, Profile,
+    ProfileLease, ProfileList, Session, SessionCommand, SessionCommandResult, SessionList,
 };
 use crate::types_v1::{
     CreatePortalSession, CreateSecret, CreateSecretRequest, CreateSignIn, CreateWebhookEndpoint, ListSecrets, LiveLink,
@@ -198,18 +197,7 @@ impl Client {
         .await
     }
 
-    /// The agent balance intents pay from, and this month's spend.
-    pub async fn balance(&self) -> Result<Balance> {
-        self.send(Method::GET, "/balance", None, |r| r).await
-    }
-
-    /// A customer's balance.
-    pub async fn balance_for(&self, customer: &str) -> Result<Balance> {
-        self.send(Method::GET, "/balance", None, |r| r.query(&[("customer", customer)]))
-            .await
-    }
-
-    /// Someone you buy for, with their own balance and browser profile.
+    /// Someone you buy for, with their own wallet and browser profile.
     /// Sends a fresh Idempotency-Key; use [`Client::create_customer_idempotent`] to set your own.
     pub async fn create_customer(&self, params: CustomerParams) -> Result<Customer> {
         self.create_customer_idempotent(params, &uuid::Uuid::new_v4().to_string())
@@ -234,22 +222,6 @@ impl Client {
     /// Newest first.
     pub async fn list_customers(&self, params: &ListCustomers) -> Result<CustomerList> {
         self.send(Method::GET, "/customers", None, |r| r.query(params)).await
-    }
-
-    /// A payment link that adds `amount` to a balance once paid. Live keys only.
-    /// Sends a fresh Idempotency-Key; use [`Client::create_topup_idempotent`] to set your own.
-    pub async fn create_topup(&self, params: CreateTopup) -> Result<Topup> {
-        self.create_topup_idempotent(params, &uuid::Uuid::new_v4().to_string())
-            .await
-    }
-
-    pub async fn create_topup_idempotent(&self, params: CreateTopup, idempotency_key: &str) -> Result<Topup> {
-        self.send(Method::POST, "/topups", Some(idempotency_key), |r| r.json(&params))
-            .await
-    }
-
-    pub async fn get_topup(&self, id: &str) -> Result<Topup> {
-        self.send(Method::GET, &format!("/topups/{id}"), None, |r| r).await
     }
 
     /// A page of the intent's timeline, oldest first: status changes, the

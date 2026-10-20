@@ -71,7 +71,6 @@ pub struct PortalSession {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SecretKind {
-    Card,
     Address,
     Contact,
     IdentityDocument,
@@ -163,7 +162,7 @@ pub struct Secret {
     pub customer: Option<String>,
     pub kind: SecretKind,
     pub label: String,
-    /// What a person may be shown to recognise it, such as `Visa ••4242`.
+    /// What a person may be shown to recognise it, such as `Paris, FR` for an address.
     pub mask: String,
     /// The few fields its kind keeps in the clear.
     #[serde(default)]

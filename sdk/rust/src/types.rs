@@ -62,7 +62,7 @@ pub struct CreateIntent {
     /// Structured details: addresses, names, loyalty numbers.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub context: Option<Value>,
-    /// Always return a payment link instead of paying from the balance.
+    /// Always wait in `requires_payment` with a payment link (`reason: requested`) before paying.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub require_payment_link: Option<bool>,
     /// When the shop wants the payer signed in and asks for a phone number or
@@ -83,7 +83,7 @@ pub struct CreateIntent {
     pub sign_in_link: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<HashMap<String, String>>,
-    /// A customer of your account to buy for: their balance and browser profile.
+    /// A customer of your account to buy for: their wallet and browser profile.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub customer: Option<String>,
     /// The country its browser goes out from (ISO 3166-1 alpha-2, lowercase).
@@ -596,27 +596,7 @@ pub struct IntentList {
     pub next_cursor: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Balance {
-    /// What intents can pay from now.
-    pub available: i64,
-    /// Reserved for intents at their payment step.
-    #[serde(default)]
-    pub held: Option<i64>,
-    pub currency: String,
-    /// The customer whose balance this is; `None` for your account's.
-    #[serde(default)]
-    pub customer: Option<String>,
-    #[serde(default)]
-    pub monthly_limit: Option<i64>,
-    /// The most one purchase may cost, merchant total plus fee, in cents.
-    #[serde(default)]
-    pub per_intent_limit: Option<i64>,
-    #[serde(default)]
-    pub spent_this_month: Option<i64>,
-}
-
-/// Someone you buy for, with their own balance and browser profile.
+/// Someone you buy for, with their own wallet and browser profile.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Customer {
     pub id: String,
@@ -635,8 +615,9 @@ pub struct Customer {
     pub created_at: String,
 }
 
-/// What a customer may spend, in cents, counting the merchant's total plus the
-/// fee. `None` is no limit.
+/// What a customer may spend, in cents, counting the cart's total of each
+/// purchase their wallet paid. `None` is no limit. Checked before anything is
+/// paid; an intent over one fails with `limit_exceeded`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Limits {
     #[serde(default)]
@@ -731,65 +712,6 @@ pub struct CustomerList {
     pub data: Vec<Customer>,
     #[serde(default)]
     pub next_cursor: Option<String>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum TopupStatus {
-    /// Waiting to be paid until `expires_at`.
-    Open,
-    Paid,
-    /// Not paid in time (a payment begun in time can still turn it `Paid`).
-    Expired,
-    #[serde(other)]
-    Unknown,
-}
-
-/// Parameters for `POST /topups`. Build with [`CreateTopup::new`].
-#[derive(Debug, Clone, Default, Serialize)]
-pub struct CreateTopup {
-    /// In cents: 50 to 1000000.
-    pub amount: i64,
-    /// Only `usd` for now.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub currency: Option<String>,
-    /// Top up this customer's balance instead of your account's.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub customer: Option<String>,
-}
-
-impl CreateTopup {
-    pub fn new(amount: i64) -> Self {
-        Self {
-            amount,
-            ..Default::default()
-        }
-    }
-
-    pub fn currency(mut self, currency: impl Into<String>) -> Self {
-        self.currency = Some(currency.into());
-        self
-    }
-
-    pub fn customer(mut self, customer: impl Into<String>) -> Self {
-        self.customer = Some(customer.into());
-        self
-    }
-}
-
-/// A payment link that adds `amount` to a balance once paid.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Topup {
-    pub id: String,
-    pub amount: i64,
-    pub currency: String,
-    #[serde(default)]
-    pub customer: Option<String>,
-    pub status: TopupStatus,
-    /// Where the payer pays.
-    pub url: String,
-    pub expires_at: String,
-    pub created_at: String,
 }
 
 /// One step in an intent's or a session's timeline. `kind` (`type` in the
