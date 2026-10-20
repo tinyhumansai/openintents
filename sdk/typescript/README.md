@@ -38,8 +38,7 @@ if (intent.status === "requires_payment") {
 Also: `oi.intents.get(id)`, `oi.intents.list({ status, customer, limit })`,
 `for await (const i of oi.intents.listAll())`, `oi.intents.cancel(id)`,
 `oi.intents.input(id, { input, value })` (see below),
-`oi.balance.get({ customer })`, `oi.customers.create/get/update/list/listAll`
-and `oi.topups.create/get`. Pass `customer` to `intents.create` to buy for one
+and `oi.customers.create/get/update/list/listAll`. Pass `customer` to `intents.create` to buy for one
 of your customers. Errors throw `OpenIntentsError` (`status`, `type`, `code`,
 `param`, and `lease` with `profile_busy`). Every create (but a profile's),
 `cancel`, `input`, `release` and `runCommand` sends an `Idempotency-Key`
@@ -123,8 +122,8 @@ identity document) is answered only on `input_request.url`.
 ### Secrets, sign-ins and live links
 
 ```ts
-const card = await oi.secrets.create({ kind: "card", label: "Work Visa", fields: { number: "4242424242424242", /* … */ }, shops: ["airfrance.com"] });
-await oi.intents.create({ intent: "book the 7am flight", secrets: [card.id], shops: ["airfrance.com"] });
+const miles = await oi.secrets.create({ kind: "loyalty", label: "Flying Blue", fields: { program: "Flying Blue", member_number: "1234567890" }, shops: ["airfrance.com"] });
+await oi.intents.create({ intent: "book the 7am flight", secrets: [miles.id], shops: ["airfrance.com"] });
 
 const ask = await oi.customers.createSecretRequest("cus_4b81d0", { kinds: ["identity_document"] }); // send ask.url
 const signIn = await oi.signIns.create({ shop_url: "https://www.amazon.com/", customer: "cus_4b81d0" }); // send signIn.url
@@ -170,16 +169,14 @@ openintents run "UberX to SFO, leaving 7am" --max 60 --wait
 openintents status <id> --wait --json
 openintents pay <id>      # open the payment link (a step in the wallet)
 openintents input <id> --input <input id> --value <code>
-openintents balance [--customer <id>]
 openintents customers create --external-id u-7 --name Ada --per-intent 50
 openintents customers portal <id>          # a link to the customer's own page
 openintents sessions open --customer <id> --start-url https://shop.example/
 openintents sessions command <id> snapshot # or navigate, read, click, type, select, press
 openintents sessions live <id>             # a 10 minute link to drive the browser
 openintents profiles list --customer <id>
-openintents topups create 25 --customer <id>
 openintents sign-ins create https://www.amazon.com/ --customer <id>
-echo '{"number":"4242424242424242"}' | openintents secrets set --kind card --label "Work Visa" --stdin
+echo '{"program":"Flying Blue","member_number":"1234567890"}' | openintents secrets set --kind loyalty --label "Flying Blue" --stdin
 openintents secrets list                   # handles and masks, never values
 openintents mcp           # stdio MCP server, see below
 ```
@@ -189,7 +186,7 @@ cancelled, `4` needs the payer to sign in to the shop (`sign_in.url`), `5`
 needs an answer from the payer (`input_request.prompt`).
 
 The same commands and flags exist in the Rust CLI (`cargo install openintents
---features cli`), except `mcp`. `customers`, `sessions`, `profiles`, `topups`,
+--features cli`), except `mcp`. `customers`, `sessions`, `profiles`,
 `sign-ins` and `secrets` each take `--json` like the rest; `openintents --help`
 lists every flag. Stored secrets are write-only: no command prints a value,
 and `secrets set --stdin` takes the fields as a JSON object so they stay out

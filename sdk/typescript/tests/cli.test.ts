@@ -41,7 +41,7 @@ async function cli(argv: string[], replies: Reply[] = [{ body: {} }], over: Part
 const customer = { id: "cus_1", object: "customer", external_id: "u-7", name: "Ada", email: "ada@example.com", created_at: "2026-10-01T00:00:00Z" };
 const session = { id: "ses_1", object: "session", profile: "prf_1", status: "open", test: true, created_at: "2026-10-01T00:00:00Z", expires_at: "2026-10-01T00:15:00Z", url: "https://shop.example/" };
 const profile = { id: "prf_1", object: "profile", customer: "cus_1", status: "idle", created_at: "2026-10-01T00:00:00Z" };
-const secret = { id: "sec_1", object: "secret", customer: null, kind: "card", label: "Work Visa", mask: "Visa ••4242", public: {}, shops: ["airfrance.com"], default: false, mode: "test", entered_by: "developer", version: 1, created_at: "2026-10-01T00:00:00Z", updated_at: "2026-10-01T00:00:00Z", expires_at: null, last_used_at: null };
+const secret = { id: "sec_1", object: "secret", customer: null, kind: "loyalty", label: "Flying Blue", mask: "••7890", public: { program: "Flying Blue" }, shops: ["airfrance.com"], default: false, mode: "test", entered_by: "developer", version: 1, created_at: "2026-10-01T00:00:00Z", updated_at: "2026-10-01T00:00:00Z", expires_at: null, last_used_at: null };
 
 describe("openintents customers", () => {
   it("creates a customer from flags, limits in dollars", async () => {
@@ -189,27 +189,6 @@ describe("openintents profiles", () => {
   });
 });
 
-describe("openintents topups", () => {
-  it("makes a payment link for dollars", async () => {
-    const r = await cli(
-      ["topups", "create", "25", "--customer", "cus_1"],
-      [{ status: 201, body: { id: "top_1", object: "topup", amount: 2500, currency: "usd", customer: "cus_1", status: "open", url: "https://pay.example/top_1", expires_at: "2026-10-02T00:00:00Z", created_at: "2026-10-01T00:00:00Z" } }],
-    );
-    expect(r.calls[0]).toMatchObject({ method: "POST", url: "https://api.test/v1/topups", body: { amount: 2500, customer: "cus_1" } });
-    expect(r.out).toContain("https://pay.example/top_1");
-    expect(r.out).toContain("$25.00");
-  });
-
-  it("gets a top-up and rejects a bad amount", async () => {
-    const got = await cli(["topups", "get", "top_1"], [{ body: { id: "top_1", object: "topup", amount: 2500, currency: "usd", status: "paid", url: "u", expires_at: "x", created_at: "x" } }]);
-    expect(got.calls[0]).toMatchObject({ method: "GET", url: "https://api.test/v1/topups/top_1" });
-    expect(got.out).toContain("paid");
-    const bad = await cli(["topups", "create", "lots"]);
-    expect(bad.code).toBe(1);
-    expect(bad.calls).toHaveLength(0);
-  });
-});
-
 describe("openintents sign-ins", () => {
   it("makes a sign-in link and reads it back", async () => {
     const signIn = { id: "sgn_1", object: "sign_in", status: "open", customer: "cus_1", shop: "amazon.com", country: "us", country_source: "default", return_url: null, url: "https://openintents.io/signin/abc", test: true, created_at: "x", expires_at: "y", ended_at: null };
@@ -232,42 +211,42 @@ describe("openintents sign-ins", () => {
 describe("openintents secrets", () => {
   it("stores a secret without printing or echoing its values", async () => {
     const r = await cli(
-      ["secrets", "set", "--kind", "card", "--label", "Work Visa", "--field", "number=4242424242424242", "--field", "cvc=123", "--shop", "airfrance.com", "--default"],
+      ["secrets", "set", "--kind", "loyalty", "--label", "Flying Blue", "--field", "member_number=1234567890", "--field", "pin=4321", "--field", "program=Flying Blue", "--shop", "airfrance.com", "--default"],
       [{ status: 201, body: secret }],
     );
     expect(r.code).toBe(0);
     expect(r.calls[0]).toMatchObject({
       method: "POST",
       url: "https://api.test/v1/secrets",
-      body: { kind: "card", label: "Work Visa", fields: { number: "4242424242424242", cvc: "123" }, shops: ["airfrance.com"], default: true },
+      body: { kind: "loyalty", label: "Flying Blue", fields: { member_number: "1234567890", pin: "4321", program: "Flying Blue" }, shops: ["airfrance.com"], default: true },
     });
-    expect(r.out).toContain("Visa ••4242");
+    expect(r.out).toContain("••7890");
     for (const text of [r.out, r.err]) {
-      expect(text).not.toContain("4242424242424242");
-      expect(text).not.toContain("123");
+      expect(text).not.toContain("1234567890");
+      expect(text).not.toContain("4321");
     }
   });
 
   it("takes the fields as JSON on stdin so they stay out of the process list", async () => {
-    const r = await cli(["secrets", "set", "--kind", "card", "--label", "Work Visa", "--stdin"], [{ status: 201, body: secret }], {
-      stdin: async () => JSON.stringify({ number: "4242424242424242" }),
+    const r = await cli(["secrets", "set", "--kind", "loyalty", "--label", "Flying Blue", "--stdin"], [{ status: 201, body: secret }], {
+      stdin: async () => JSON.stringify({ member_number: "1234567890" }),
     });
-    expect(r.calls[0]!.body).toMatchObject({ fields: { number: "4242424242424242" } });
-    expect(r.out + r.err).not.toContain("4242424242424242");
+    expect(r.calls[0]!.body).toMatchObject({ fields: { member_number: "1234567890" } });
+    expect(r.out + r.err).not.toContain("1234567890");
   });
 
   it("does not repeat a field's value in an error", async () => {
-    const r = await cli(["secrets", "set", "--kind", "card", "--label", "x", "--field", "4242424242424242"]);
+    const r = await cli(["secrets", "set", "--kind", "loyalty", "--label", "x", "--field", "1234567890"]);
     expect(r.code).toBe(1);
-    expect(r.err).not.toContain("4242424242424242");
+    expect(r.err).not.toContain("1234567890");
     expect(r.calls).toHaveLength(0);
   });
 
   it("lists, shows and deletes secrets, never their values", async () => {
-    const list = await cli(["secrets", "list", "--kind", "card", "--customer", "cus_1"], [{ body: { object: "list", data: [secret] } }]);
-    expect(list.calls[0]!.url).toBe("https://api.test/v1/secrets?customer=cus_1&kind=card");
-    expect(list.out).toContain("Work Visa");
-    expect(list.out).toContain("Visa ••4242");
+    const list = await cli(["secrets", "list", "--kind", "loyalty", "--customer", "cus_1"], [{ body: { object: "list", data: [secret] } }]);
+    expect(list.calls[0]!.url).toBe("https://api.test/v1/secrets?customer=cus_1&kind=loyalty");
+    expect(list.out).toContain("Flying Blue");
+    expect(list.out).toContain("••7890");
     const got = await cli(["secrets", "get", "sec_1"], [{ body: secret }]);
     expect(got.calls[0]).toMatchObject({ method: "GET", url: "https://api.test/v1/secrets/sec_1" });
     const del = await cli(["secrets", "delete", "sec_1"], [{ status: 204 }]);
@@ -277,13 +256,13 @@ describe("openintents secrets", () => {
 
   it("asks a customer to enter their own", async () => {
     const r = await cli(
-      ["secrets", "request", "cus_1", "--kind", "card", "--kind", "address", "--ttl", "3600"],
-      [{ status: 201, body: { id: "sr_1", object: "secret_request", customer: "cus_1", kinds: ["card", "address"], url: "https://openintents.io/secrets/abc", expires_at: "x" } }],
+      ["secrets", "request", "cus_1", "--kind", "contact", "--kind", "address", "--ttl", "3600"],
+      [{ status: 201, body: { id: "sr_1", object: "secret_request", customer: "cus_1", kinds: ["contact", "address"], url: "https://openintents.io/secrets/abc", expires_at: "x" } }],
     );
     expect(r.calls[0]).toMatchObject({
       method: "POST",
       url: "https://api.test/v1/customers/cus_1/secret_requests",
-      body: { kinds: ["card", "address"], ttl_seconds: 3600 },
+      body: { kinds: ["contact", "address"], ttl_seconds: 3600 },
     });
     expect(r.out).toContain("https://openintents.io/secrets/abc");
   });

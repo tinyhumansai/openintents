@@ -10,7 +10,6 @@ import type {
   Session,
   SessionCommandResult,
   SignIn,
-  Topup,
 } from "./types.js";
 
 export const money = (cents: number, currency = "usd") =>
@@ -77,12 +76,6 @@ export function describeCommand(r: SessionCommandResult): string {
 
 export function describeProfile(p: Profile): string {
   return `${p.id}  ${p.status}  ${p.customer ? `customer ${p.customer}` : "your account"}`;
-}
-
-export function describeTopup(t: Topup): string {
-  const lines = [`${t.id}  ${t.status}  ${money(t.amount, t.currency)}${t.customer ? `  customer ${t.customer}` : ""}`];
-  if (t.status === "open") lines.push(`  pay here: ${t.url}`);
-  return lines.join("\n");
 }
 
 export function describeSignIn(s: SignIn): string {

@@ -85,7 +85,7 @@ describe("OpenIntents client", () => {
       {
         body: intent({
           status: "requires_payment",
-          payment: { reason: "insufficient_balance", payment_url: "https://pay/p", total: 550, fee: 28, currency: "usd", expires_at: "x" },
+          payment: { reason: "add_money", payment_url: "https://pay/p", total: 550, fee: 0, currency: "usd", expires_at: "x" },
         }),
       },
     );
@@ -243,28 +243,17 @@ describe("OpenIntents client", () => {
     await expect(make(fetch).intents.wait("int_1", { intervalMs: 5, timeoutMs: 1 })).rejects.toBeInstanceOf(WaitTimeoutError);
   });
 
-  it("gets the balance", async () => {
-    const { fetch, calls } = mockFetch({ body: { object: "balance", available: 24450, currency: "usd" } });
-    const b = await make(fetch).balance.get();
-    expect(b.available).toBe(24450);
-    expect(calls[0]!.url).toBe("https://api.test/v1/balance");
-  });
-
-  it("gets a customer's balance and buys for a customer", async () => {
+  it("buys for a customer", async () => {
     const { fetch, calls } = mockFetch(
-      { body: { object: "balance", available: 0, held: 450, currency: "usd", customer: "cus_1" } },
       { status: 201, body: intent({ customer: "cus_1" }) },
       { body: { object: "list", data: [], next_cursor: null } },
     );
     const oi = make(fetch);
-    const b = await oi.balance.get({ customer: "cus_1" });
-    expect(b.held).toBe(450);
-    expect(calls[0]!.url).toBe("https://api.test/v1/balance?customer=cus_1");
     const created = await oi.intents.create({ intent: "flat white", customer: "cus_1" });
     expect(created.customer).toBe("cus_1");
-    expect(JSON.parse(calls[1]!.init.body as string)).toEqual({ intent: "flat white", customer: "cus_1" });
+    expect(JSON.parse(calls[0]!.init.body as string)).toEqual({ intent: "flat white", customer: "cus_1" });
     await oi.intents.list({ customer: "cus_1" });
-    expect(calls[2]!.url).toBe("https://api.test/v1/intents?customer=cus_1");
+    expect(calls[1]!.url).toBe("https://api.test/v1/intents?customer=cus_1");
   });
 
   it("creates, updates and lists customers", async () => {
@@ -290,28 +279,5 @@ describe("OpenIntents client", () => {
     expect(calls[2]!.url).toBe("https://api.test/v1/customers?external_id=u-42");
     await oi.customers.get("cus_1");
     expect(calls[3]!.url).toBe("https://api.test/v1/customers/cus_1");
-  });
-
-  it("creates and retrieves a top-up", async () => {
-    const topup = {
-      id: "pay_1",
-      object: "topup",
-      amount: 5000,
-      currency: "usd",
-      customer: null,
-      status: "open",
-      url: "https://openintents.io/api/pay/pay_1",
-      expires_at: "x",
-      created_at: "x",
-    };
-    const { fetch, calls } = mockFetch({ status: 201, body: topup }, { body: { ...topup, status: "paid" } });
-    const oi = make(fetch);
-    const created = await oi.topups.create({ amount: 5000 });
-    expect(created.url).toContain("/api/pay/");
-    expect(JSON.parse(calls[0]!.init.body as string)).toEqual({ amount: 5000 });
-    expect((calls[0]!.init.headers as Record<string, string>)["Idempotency-Key"]).toBeTruthy();
-    const got = await oi.topups.get("pay_1");
-    expect(got.status).toBe("paid");
-    expect(calls[1]!.url).toBe("https://api.test/v1/topups/pay_1");
   });
 });

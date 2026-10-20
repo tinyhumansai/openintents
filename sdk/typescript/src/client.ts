@@ -3,8 +3,6 @@ import { SseParser } from "./sse.js";
 import {
   FINAL_STATUSES,
   type AnswerInputParams,
-  type Balance,
-  type BalanceParams,
   type CreateIntentParams,
   type CreatePortalSessionParams,
   type CreateSecretParams,
@@ -13,7 +11,6 @@ import {
   type CreateWebhookEndpointParams,
   type CreateProfileParams,
   type CreateSessionParams,
-  type CreateTopupParams,
   type Customer,
   type CustomerList,
   type CustomerParams,
@@ -51,7 +48,6 @@ import {
   type SessionCommandResult,
   type SessionList,
   type StreamEventsOptions,
-  type Topup,
 } from "./types.js";
 import { VERSION } from "./version.js";
 
@@ -161,9 +157,7 @@ const sleep = (ms: number, signal?: AbortSignal) =>
  */
 export class OpenIntents {
   readonly intents: Intents;
-  readonly balance: BalanceResource;
   readonly customers: Customers;
-  readonly topups: Topups;
   readonly profiles: Profiles;
   readonly sessions: Sessions;
   readonly secrets: Secrets;
@@ -188,9 +182,7 @@ export class OpenIntents {
     this.maxRetries = options.maxRetries ?? 2;
     this.fetchImpl = options.fetch ?? globalThis.fetch.bind(globalThis);
     this.intents = new Intents(this);
-    this.balance = new BalanceResource(this);
     this.customers = new Customers(this);
-    this.topups = new Topups(this);
     this.profiles = new Profiles(this);
     this.sessions = new Sessions(this);
     this.secrets = new Secrets(this);
@@ -541,20 +533,10 @@ class Intents {
   }
 }
 
-class BalanceResource {
-  constructor(private readonly client: OpenIntents) {}
-
-  /** The agent balance intents pay from, and this month's spend; a customer's with `{ customer }`. */
-  get(opts: BalanceParams & RequestOptions = {}): Promise<Balance> {
-    const { customer, ...rest } = opts;
-    return this.client.request<Balance>("GET", "/balance", { query: { customer }, ...rest });
-  }
-}
-
 class Customers {
   constructor(private readonly client: OpenIntents) {}
 
-  /** Someone you buy for, with their own balance and browser profile. */
+  /** Someone you buy for, with their own wallet and browser profile. */
   create(params: CustomerParams = {}, opts: RequestOptions = {}): Promise<Customer> {
     return this.client.request<Customer>("POST", "/customers", {
       body: params,
@@ -597,7 +579,7 @@ class Customers {
   }
 
   /**
-   * Ask a customer to enter their own secrets (an address, a card, an
+   * Ask a customer to enter their own secrets (an address, a contact, an
    * identity document) on a page of their own, so they never pass through
    * you. Send them `url`; read the result with `secretRequests.get` or the
    * `secret_request.completed` webhook.
@@ -626,23 +608,6 @@ class Customers {
       yield* page.data;
       cursor = page.next_cursor ?? undefined;
     } while (cursor);
-  }
-}
-
-class Topups {
-  constructor(private readonly client: OpenIntents) {}
-
-  /** A payment link that adds `amount` to a balance once paid. Live keys only. */
-  create(params: CreateTopupParams, opts: RequestOptions = {}): Promise<Topup> {
-    return this.client.request<Topup>("POST", "/topups", {
-      body: params,
-      ...opts,
-      idempotencyKey: opts.idempotencyKey ?? crypto.randomUUID(),
-    });
-  }
-
-  get(id: string, opts: RequestOptions = {}): Promise<Topup> {
-    return this.client.request<Topup>("GET", `/topups/${encodeURIComponent(id)}`, opts);
   }
 }
 

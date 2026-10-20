@@ -22,7 +22,7 @@ export interface CreateIntentParams {
   currency?: string;
   /** Structured details: addresses, names, loyalty numbers. */
   context?: Record<string, unknown>;
-  /** Always return a payment link instead of paying from the balance. */
+  /** Always wait in `requires_payment` with a payment link (`reason: requested`) before paying. */
   require_payment_link?: boolean;
   /**
    * When the shop wants the payer signed in and asks for a phone number or
@@ -45,7 +45,7 @@ export interface CreateIntentParams {
   sign_in_link?: boolean;
   /** Up to 20 of your own key/value pairs. */
   metadata?: Record<string, string>;
-  /** A customer of your account to buy for: their balance and browser profile. */
+  /** A customer of your account to buy for: their wallet and browser profile. */
   customer?: string;
   /**
    * Where the payer's browser goes out from: ISO 3166-1 alpha-2, lowercase
@@ -81,7 +81,6 @@ export type CountrySource = "explicit" | "payer" | "end_user_ip" | "request_ip" 
 
 export interface PaymentRequest {
   reason:
-    | "insufficient_balance"
     | "over_limit"
     | "requested"
     | "connect_wallet"
@@ -282,28 +281,7 @@ export interface IntentList {
   next_cursor?: string | null;
 }
 
-export interface Balance {
-  object: "balance";
-  /** What intents can pay from now. */
-  available: number;
-  /** Reserved for intents at their payment step. */
-  held?: number;
-  currency: string;
-  /** The customer whose balance this is; `null` for your account's. */
-  customer?: string | null;
-  /** The most that may leave the balance in a UTC calendar month, in cents; `null` for no limit. */
-  monthly_limit?: number | null;
-  /** The most one purchase may cost, merchant total plus fee, in cents; `null` for no limit. */
-  per_intent_limit?: number | null;
-  spent_this_month?: number;
-}
-
-export interface BalanceParams {
-  /** A customer's balance instead of your account's. */
-  customer?: string;
-}
-
-/** Someone you buy for, with their own balance and browser profile. */
+/** Someone you buy for, with their own wallet and browser profile. */
 export interface Customer {
   id: string;
   object: "customer";
@@ -317,7 +295,11 @@ export interface Customer {
   created_at: string;
 }
 
-/** What a customer may spend, in cents, counting the merchant's total plus the fee. `null` is no limit. */
+/**
+ * What a customer may spend, in cents, counting the cart's total of each
+ * purchase their wallet paid. `null` is no limit. Checked before anything is
+ * paid; an intent over one fails with `limit_exceeded`.
+ */
 export interface Limits {
   per_intent: number | null;
   monthly: number | null;
@@ -352,32 +334,6 @@ export interface CustomerList {
   object: "list";
   data: Customer[];
   next_cursor?: string | null;
-}
-
-export type TopupStatus = "open" | "paid" | "expired";
-
-export interface CreateTopupParams {
-  /** In cents: 50 to 1000000. */
-  amount: number;
-  /** Only `usd` for now. */
-  currency?: string;
-  /** Top up this customer's balance instead of your account's. */
-  customer?: string;
-}
-
-/** A payment link that adds `amount` to a balance once paid. */
-export interface Topup {
-  id: string;
-  object: "topup";
-  amount: number;
-  currency: string;
-  customer?: string | null;
-  /** `open` until paid or `expires_at`; a payment begun in time can still turn `expired` into `paid`. */
-  status: TopupStatus;
-  /** Where the payer pays. */
-  url: string;
-  expires_at: string;
-  created_at: string;
 }
 
 /**
@@ -684,7 +640,7 @@ export interface CreatePortalSessionParams {
 }
 
 /** What a secret holds, and so which `fields` it takes. */
-export type SecretKind = "card" | "address" | "contact" | "identity_document" | "shop_password" | "loyalty";
+export type SecretKind = "address" | "contact" | "identity_document" | "shop_password" | "loyalty";
 
 export interface CreateSecretParams {
   /** The customer it is for; without it, your account's own. */
@@ -710,7 +666,7 @@ export interface Secret {
   customer: string | null;
   kind: SecretKind;
   label: string;
-  /** What a person may be shown to recognise it, such as `Visa ••4242`. */
+  /** What a person may be shown to recognise it, such as `Paris, FR` for an address. */
   mask: string;
   /** The few fields its kind keeps in the clear. */
   public: Record<string, string>;
