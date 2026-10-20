@@ -448,7 +448,8 @@ pub enum AnswerInput {
     },
     /// The payer would rather not: the agent stops signing them in this way.
     Decline { input: String },
-    /// Only for an approval: the payer approved the sign-in.
+    /// Only for an approval (the payer approved the sign-in) or a payment
+    /// (the payer paid the shop).
     Done { input: String },
 }
 

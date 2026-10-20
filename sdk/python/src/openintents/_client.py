@@ -552,7 +552,7 @@ class Intents:
         code, or a "detail"'s answer: one of its options, or the id of one of
         its choices), values= (a form's answers by field name, for a request
         with fields), decline=True (the payer would rather not) or done=True (only for an
-        "approval", once they approved it). Returns the intent, usually
+        "approval", once they approved it, or a "payment", once they paid). Returns the intent, usually
         "running" again.
         A request already answered or expired raises a 409 input_not_waiting.
 

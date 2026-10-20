@@ -175,7 +175,7 @@ paths:
         `requires_input`: the phone number, email, code or answer to a
         `detail` in `value`, `decline` when the payer would rather not (the
         agent stops asking, see `InputRequest`), or `done` once they
-        approved an `approval`. A question with `choices` is answered with
+        approved an `approval` or paid a `payment`. A question with `choices` is answered with
         the `id` of one in `value`, and one with `fields` with `values`, an
         object of the answers by field `name`. Send exactly one of
         `value`, `values`, `decline` and `done`, with the request's `id` as
@@ -2256,7 +2256,9 @@ components:
         done:
           type: boolean
           const: true
-          description: Only for an `approval`, once the payer approved the sign-in.
+          description: |
+            Only for an `approval`, once the payer approved the sign-in, or a
+            `payment`, once they paid the shop.
 
     Receipt:
       type: object
