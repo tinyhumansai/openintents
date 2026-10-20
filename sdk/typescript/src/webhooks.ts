@@ -33,7 +33,8 @@ function safeEqual(a: string, b: string): boolean {
 }
 
 /**
- * Verify an `OpenIntents-Signature` header (`t=<unix>,v1=<hex>`) against the
+ * Verify an `OpenIntents-Signature` header (`t=<unix>,v1=<hex>`, with one `v1`
+ * for each secret that signs while an endpoint's secret is being rotated) against the
  * raw request body and return the parsed event. Throws
  * WebhookVerificationError if the signature is missing, wrong or too old.
  * Pass the body exactly as received, before any JSON parsing.
@@ -45,18 +46,21 @@ export async function verifyWebhook(
   { toleranceS = DEFAULT_TOLERANCE_S, now = Date.now() }: { toleranceS?: number; now?: number } = {},
 ): Promise<WebhookEvent> {
   if (!signatureHeader) throw new WebhookVerificationError("Missing OpenIntents-Signature header");
-  const parts = new Map<string, string>();
+  // After a secret rotation the header holds a `v1` for each secret that still signs.
+  let tRaw: string | undefined;
+  const v1s: string[] = [];
   for (const part of signatureHeader.split(",")) {
     const [k, v] = part.trim().split("=", 2);
-    if (k && v) parts.set(k, v);
+    if (!k || !v) continue;
+    if (k === "t") tRaw = v;
+    else if (k === "v1") v1s.push(v.toLowerCase());
   }
-  const t = Number(parts.get("t"));
-  const v1 = parts.get("v1");
-  if (!Number.isFinite(t) || !v1) throw new WebhookVerificationError("Malformed OpenIntents-Signature header");
+  const t = Number(tRaw);
+  if (!Number.isFinite(t) || v1s.length === 0) throw new WebhookVerificationError("Malformed OpenIntents-Signature header");
   if (Math.abs(now / 1000 - t) > toleranceS) throw new WebhookVerificationError("Signature timestamp outside tolerance");
 
   const expected = await hmacHex(secret, `${t}.${rawBody}`);
-  if (!safeEqual(expected, v1.toLowerCase())) throw new WebhookVerificationError("Signature mismatch");
+  if (!v1s.map((v1) => safeEqual(expected, v1)).includes(true)) throw new WebhookVerificationError("Signature mismatch");
   return JSON.parse(rawBody) as WebhookEvent;
 }
 

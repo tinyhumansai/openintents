@@ -43,24 +43,25 @@ pub fn verify_webhook_at(
     now: i64,
 ) -> Result<WebhookEvent> {
     let header = signature_header.ok_or(Error::Webhook("missing OpenIntents-Signature header"))?;
-    let (mut t, mut v1) = (None, None);
+    // While a secret is being rotated the header holds a v1 for each secret that still signs.
+    let (mut t, mut v1s) = (None, Vec::new());
     for part in header.split(',') {
         match part.trim().split_once('=') {
             Some(("t", v)) => t = v.parse::<i64>().ok(),
-            Some(("v1", v)) => v1 = hex::decode(v).ok(),
+            Some(("v1", v)) => v1s.extend(hex::decode(v).ok()),
             _ => {}
         }
     }
-    let (t, v1) = t
-        .zip(v1)
+    let t = t
+        .filter(|_| !v1s.is_empty())
         .ok_or(Error::Webhook("malformed OpenIntents-Signature header"))?;
     if now.abs_diff(t) > tolerance_secs {
         return Err(Error::Webhook("signature timestamp outside tolerance"));
     }
     // verify_slice compares in constant time.
-    mac(secret, t, raw_body)
-        .verify_slice(&v1)
-        .map_err(|_| Error::Webhook("signature mismatch"))?;
+    if !v1s.iter().any(|v1| mac(secret, t, raw_body).verify_slice(v1).is_ok()) {
+        return Err(Error::Webhook("signature mismatch"));
+    }
     Ok(serde_json::from_slice(raw_body)?)
 }
 
