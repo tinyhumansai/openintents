@@ -99,6 +99,12 @@ key (made at https://openintents.io/dashboard/api-keys), sent as
      never answer it yourself: give the user `input_request.url`, where they
      type it themselves, and wait again. Only a decline (`--decline`) is
      accepted by the answer endpoint (`422 answer_on_page` otherwise).
+
+     When `input_request.kind` is `payment` (the intent was created with
+     `pay_at_shop`), the user pays the shop themselves: show them
+     `input_request.image_url`, a picture of the shop's payment code to scan
+     with a UPI app, and answer `--done` once they say they paid (or
+     `--decline`). It expires after 5 minutes.
    - `requires_login`: the shop wants the user signed in to their account
      there. Give the user `sign_in.url` (theirs only: it works on the first
      device that opens it), tell them it works for 30 minutes, and wait

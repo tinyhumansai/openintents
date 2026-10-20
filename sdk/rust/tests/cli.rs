@@ -619,3 +619,21 @@ async fn run_and_list_still_work_and_take_context_and_status() {
     assert_eq!(r.code, 0, "{}", r.err);
     assert!(r.out.contains("int_1"));
 }
+
+#[tokio::test]
+async fn status_shows_a_payments_code_to_scan_and_answers_it_with_done() {
+    let intent = json!({ "id": "int_1", "object": "intent", "status": "requires_input", "intent": "a lamp", "test": false,
+        "created_at": "x", "input_request": { "id": "inp_1", "kind": "payment", "shop": "blinkit.com",
+        "prompt": "Pay 249.00 INR", "url": "https://openintents.io/input/inp_1",
+        "image_url": "https://openintents.io/input/inp_1/code.jpg", "expires_at": "x", "attempts_left": 1 } });
+    let server = serve("GET", "/intents/int_1", 200, intent).await;
+    let r = openintents(&server, &["status", "int_1"], "").await;
+    assert!(
+        r.out
+            .contains("payment code to scan (theirs only): https://openintents.io/input/inp_1/code.jpg"),
+        "{}{}",
+        r.out,
+        r.err
+    );
+    assert!(r.out.contains("--input inp_1 --done"), "{}", r.out);
+}

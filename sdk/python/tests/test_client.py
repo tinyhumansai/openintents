@@ -201,6 +201,42 @@ def test_create_sends_sign_in_agent_and_hint():
     }
 
 
+PAYMENT_REQUEST = {
+    "id": "inp_1",
+    "kind": "payment",
+    "shop": "blinkit.com",
+    "prompt": "Pay 249.00 INR",
+    "options": [],
+    "choices": [],
+    "fields": [],
+    "expects": "text",
+    "channel": None,
+    "length": None,
+    "url": "https://openintents.io/input/inp_1",
+    "image_url": "https://openintents.io/input/inp_1/code.jpg",
+    "expires_at": "2026-10-01T00:05:00Z",
+    "attempts_left": 1,
+}
+
+
+def test_create_sends_pay_at_shop_and_reads_the_payment_code():
+    calls = []
+    oi = client((201, intent(status="requires_input", input_request=PAYMENT_REQUEST)), calls=calls)
+    got = oi.intents.create("a lamp", pay_at_shop=True)
+    assert json.loads(calls[0].content) == {"intent": "a lamp", "pay_at_shop": True}
+    assert got["input_request"]["kind"] == "payment"
+    assert got["input_request"]["image_url"] == "https://openintents.io/input/inp_1/code.jpg"
+
+
+async def test_async_create_sends_pay_at_shop():
+    calls = []
+    handler = transport((201, intent(status="queued")), calls=calls)
+    http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    async with AsyncOpenIntents("oi_test_x", base_url="https://api.test/v1", http_client=http) as oi:
+        await oi.intents.create("a lamp", pay_at_shop=True)
+    assert json.loads(calls[0].content) == {"intent": "a lamp", "pay_at_shop": True}
+
+
 def test_input_answers_with_a_value_a_decline_or_done():
     calls = []
     oi = client((200, intent(status="running")), calls=calls)

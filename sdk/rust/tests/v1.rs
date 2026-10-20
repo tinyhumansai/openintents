@@ -148,6 +148,16 @@ fn questions_offer_choices_and_forms_and_are_answered_with_values() {
     .unwrap();
     assert_eq!(sensitive.kind, InputKind::Sensitive);
     assert!(sensitive.choices.is_empty() && sensitive.fields.is_empty());
+    assert_eq!(sensitive.image_url, None);
+
+    let payment: openintents::InputRequest = serde_json::from_value(json!({
+        "id": "inp_3", "kind": "payment", "shop": "blinkit.com", "prompt": "Pay 249.00 INR",
+        "url": "https://x/input/inp_3", "image_url": "https://x/input/inp_3/code.jpg",
+        "expires_at": "t", "attempts_left": 1
+    }))
+    .unwrap();
+    assert_eq!(payment.kind, InputKind::Payment);
+    assert_eq!(payment.image_url.as_deref(), Some("https://x/input/inp_3/code.jpg"));
 
     let answer = serde_json::to_value(AnswerInput::values("inp_1", [("row", "a"), ("dob", "1990-01-02")])).unwrap();
     assert_eq!(

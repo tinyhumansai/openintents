@@ -32,6 +32,15 @@ export interface CreateIntentParams {
    */
   sign_in_agent?: boolean;
   /**
+   * The payer pays the shop themselves (default `false`). At the payment step
+   * the intent waits in `requires_input` with a `payment` request whose
+   * `image_url` is a picture of the shop's payment code (a UPI QR code); answer
+   * `done` once they paid, or decline. Only the fee comes from your balance.
+   * Live keys only; where it is not available for your key, creating the
+   * intent is a 503 `pay_at_shop_unavailable`.
+   */
+  pay_at_shop?: boolean;
+  /**
    * The payer's phone number or email for signing in, so the agent need not
    * ask for it. Kept sealed, used once, deleted when the intent ends, and
    * never returned.
@@ -122,9 +131,13 @@ export interface SignInHint {
  * such as the email the shop wants for the order, a size or a colour. A
  * detail's `prompt` is the agent's own question (never asking for passwords,
  * codes, PINs, card or bank details or ID numbers), and the answer goes back
- * to the agent.
+ * to the agent. A `sensitive` question wants an identity document, answered
+ * on its `url` only. A `payment` asks the payer to pay the shop themselves
+ * (`pay_at_shop`): show them `image_url`, a picture of the shop's payment code
+ * to scan with a UPI app, and answer `done` once they paid (it has no value),
+ * or decline.
  */
-export type InputKind = "phone" | "email" | "code" | "approval" | "detail" | "sensitive";
+export type InputKind = "phone" | "email" | "code" | "approval" | "detail" | "sensitive" | "payment";
 
 /** One of the choices a question offers, such as a seat, a fare or a delivery slot. */
 export interface InputChoice {
@@ -188,6 +201,12 @@ export interface InputRequest {
   length: number | null;
   /** A page where the payer types the answer themselves. Theirs only: whoever has it can answer. */
   url: string;
+  /**
+   * A `payment`'s picture (JPEG) of the shop's payment code, for the payer to
+   * scan; served only while the request waits, absent for other kinds. Like
+   * `url`, whoever has it can see it.
+   */
+  image_url?: string;
   expires_at: string;
   /** How many more times the agent may ask for this `kind` in this purchase, after this one. */
   attempts_left: number;
@@ -199,7 +218,7 @@ export interface InputRequest {
  * at most 300 characters, one of its `options`, or the `id` of one of its
  * `choices`), `values` (a form's answers by field `name`), `decline` (the
  * payer would rather not) or `done` (only for an `approval`, once they
- * approved it). A `sensitive` question takes only a decline: the payer
+ * approved it, or a `payment`, once they paid). A `sensitive` question takes only a decline: the payer
  * answers it on its `url` (anything else is a 422 `answer_on_page`).
  */
 export type AnswerInputParams =

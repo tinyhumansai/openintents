@@ -230,6 +230,7 @@ def _create_body(
     input_ttl_seconds: int | None = None,
     secrets: Sequence[str] | None = None,
     shops: Sequence[str] | None = None,
+    pay_at_shop: bool | None = None,
 ) -> dict[str, Any]:
     body: dict[str, Any] = {"intent": intent}
     for k, v in (
@@ -241,6 +242,7 @@ def _create_body(
         ("customer", customer),
         ("sign_in_link", sign_in_link),
         ("sign_in_agent", sign_in_agent),
+        ("pay_at_shop", pay_at_shop),
         ("sign_in_hint", dict(sign_in_hint) if sign_in_hint is not None else None),
         ("country", country),
         ("end_user_ip", end_user_ip),
@@ -448,6 +450,7 @@ class Intents:
         sign_in_link: bool | None = None,
         sign_in_agent: bool | None = None,
         sign_in_hint: SignInHint | None = None,
+        pay_at_shop: bool | None = None,
         country: str | None = None,
         end_user_ip: str | None = None,
         webhook_url: str | None = None,
@@ -463,7 +466,10 @@ class Intents:
         something to tell you (see get), so a short purchase can be one call.
         country= is where the payer's browser goes out from (ISO 3166-1
         alpha-2, lowercase), or end_user_ip= lets it be inferred; the intent
-        says which in "country" and "country_source".
+        says which in "country" and "country_source". pay_at_shop=True has
+        the payer pay the shop themselves: the intent waits in
+        "requires_input" with a "payment" request showing the shop's payment
+        code (image_url); answer done=True once they paid. Live keys only.
         """
         body = _create_body(
             intent,
@@ -482,6 +488,7 @@ class Intents:
             input_ttl_seconds,
             secrets,
             shops,
+            pay_at_shop,
         )
         return self._c._request(
             "POST", "/intents", json=body, idempotency_key=idempotency_key or str(uuid.uuid4()), wait=wait
@@ -541,7 +548,7 @@ class Intents:
         code, or a "detail"'s answer: one of its options, or the id of one of
         its choices), values= (a form's answers by field name, for a request
         with fields), decline=True (the payer would rather not) or done=True (only for an
-        "approval", once they approved it). Returns the intent, usually
+        "approval", once they approved it, or a "payment", once they paid). Returns the intent, usually
         "running" again.
         A request already answered or expired raises a 409 input_not_waiting.
 
@@ -1016,6 +1023,7 @@ class AsyncIntents:
         sign_in_link: bool | None = None,
         sign_in_agent: bool | None = None,
         sign_in_hint: SignInHint | None = None,
+        pay_at_shop: bool | None = None,
         country: str | None = None,
         end_user_ip: str | None = None,
         webhook_url: str | None = None,
@@ -1042,6 +1050,7 @@ class AsyncIntents:
             input_ttl_seconds,
             secrets,
             shops,
+            pay_at_shop,
         )
         return await self._c._request(
             "POST", "/intents", json=body, idempotency_key=idempotency_key or str(uuid.uuid4()), wait=wait
