@@ -92,7 +92,10 @@ class SignInHint(TypedDict, total=False):
 #: or ID numbers), and the answer goes back to the agent.
 #: A "sensitive" question wants an identity document: the payer answers it on
 #: its url only (anything else but a decline is a 422 answer_on_page).
-InputKind = Literal["phone", "email", "code", "approval", "detail", "sensitive"]
+#: A "payment" asks the payer to pay the shop themselves (pay_at_shop): show
+#: them image_url, a picture of the shop's payment code to scan with a UPI
+#: app, and answer done=True once they paid (it has no value), or decline.
+InputKind = Literal["phone", "email", "code", "approval", "detail", "sensitive", "payment"]
 
 
 class _InputChoiceRequired(TypedDict):
@@ -160,6 +163,10 @@ class InputRequest(TypedDict, total=False):
     length: int | None
     #: A page where the payer types the answer themselves. Theirs only: whoever has it can answer.
     url: str
+    #: A "payment"'s picture (JPEG) of the shop's payment code, for the payer to
+    #: scan; served only while the request waits, absent for other kinds. Like
+    #: url, whoever has it can see it.
+    image_url: str
     expires_at: str
     #: How many more times the agent may ask for this kind in this purchase, after this one.
     attempts_left: int
