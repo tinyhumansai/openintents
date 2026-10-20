@@ -149,7 +149,8 @@ CLI exit codes: 0 completed, 1 failed or error, 2 needs payment, 3 cancelled,
 
 - Only make purchases the user asked for, within the budget they gave.
 - Never pay a payment link yourself, and never ask for, store or invent card
-  numbers. Payment happens on the hosted payment page or from the balance.
+  numbers. Payment comes from the payer's own wallet, or the payer pays the
+  shop directly with `pay_at_shop`.
 - Never open a sign-in link, an `input_request.url`, a secret request's `url`
   or a live link yourself, and never log a secret's values. Never ask the
   user for a password, a card PIN, a UPI PIN or a bank OTP: ask only what
