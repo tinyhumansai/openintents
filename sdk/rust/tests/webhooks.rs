@@ -56,3 +56,11 @@ fn a_rotation_header_with_a_v1_for_each_secret_matches_either_secret() {
     }
     assert!(verify_webhook_at(BODY, Some(&header), "whsec_other", 300, 1_000).is_err());
 }
+
+#[test]
+fn verifies_an_independently_generated_sha256_signature() {
+    let header = "t=1700000000,v1=31803bafa1c9d0226517b39774c4b887a22916d9e3ea5ef08bcbd166647af6f3";
+    let event = verify_webhook_at(BODY, Some(header), SECRET, 300, 1_700_000_000).unwrap();
+    assert_eq!(event.kind, "intent.completed");
+    assert!(verify_webhook_at(BODY, Some(header), "whsec_other", 300, 1_700_000_000).is_err());
+}

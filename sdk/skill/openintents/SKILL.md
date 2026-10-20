@@ -1,6 +1,6 @@
 ---
 name: openintents
-description: Use when the user wants something bought, booked or ordered online (a coffee, a ride, a flight, groceries, an Amazon order). Sends a plain-language intent to the OpenIntents agentic API, which completes the purchase in a real browser and returns a receipt, or a link when the user has a step to take in their wallet first. Prefers the OpenIntents MCP tools; falls back to the `openintents` CLI.
+description: Use when the user wants something bought, booked or ordered online (a coffee, a ride, a flight, groceries, an Amazon order). Sends a plain-language intent to the OpenIntents agentic API, which completes the purchase in a real browser and returns a receipt, or a payment link when a person needs to pay. Prefers the OpenIntents MCP tools; falls back to the `openintents` CLI.
 license: GPL-3.0-or-later
 compatibility: Needs network access to api.openintents.io and an OpenIntents account. Uses the OpenIntents MCP server (https://api.openintents.io/mcp) or the `openintents` CLI from `@tinyhumansai/openintents` (npm).
 metadata:
@@ -55,13 +55,24 @@ key (made at https://openintents.io/dashboard/api-keys), sent as
 
 5. Read the result:
    - `completed`: report merchant, items, total, fee and confirmation.
-   - `requires_payment`: the user has a step to take in the wallet their
-     purchases are paid from (`payment.reason`: `connect_wallet`, `add_money`,
-     `identity_check`, `wallet_processing`, `over_limit`, or `requested` for
-     their approval). Show the user what it is buying and give them
-     `payment.payment_url`, which runs only the steps left. The intent carries
-     on by itself once they are done, so wait again
-     (`openintents status <id> --wait`).
+   - `requires_payment`: show the user what it is buying, explain
+     `payment.reason`, and give them `payment.payment_url`:
+     - `insufficient_balance`: the balance cannot cover the total plus fee.
+     - `over_limit`: the purchase exceeds a spending limit; for a wallet,
+       the user raises their limit on the payment page.
+     - `requested`: a payment link was requested before proceeding.
+     - `connect_wallet`: the user needs to connect their wallet or sign in
+       to it again.
+     - `add_money`: the user needs to add money to their wallet.
+     - `identity_check`: the user needs to confirm their identity on the
+       payment page. Never ask for identity documents in the chat.
+     - `wallet_processing`: the wallet is processing the payment; the link
+       shows its progress.
+
+     For an unknown reason, say the purchase is waiting on a payment step
+     and direct the user to the link without guessing why. Then wait again
+     (`openintents status <id> --wait`); wallet purchases resume automatically
+     once the step is done.
    - `requires_input`: the agent is signing the user in to the shop
      (`input_request.shop`) and needs something only they know. Ask them
      exactly `input_request.prompt`, naming the shop. Send their reply right
@@ -100,6 +111,12 @@ key (made at https://openintents.io/dashboard/api-keys), sent as
      never answer it yourself: give the user `input_request.url`, where they
      type it themselves, and wait again. Only a decline (`--decline`) is
      accepted by the answer endpoint (`422 answer_on_page` otherwise).
+
+     When `input_request.kind` is `payment` (the intent was created with
+     `pay_at_shop`), the user pays the shop themselves: show them
+     `input_request.image_url`, a picture of the shop's payment code to scan
+     with a UPI app, and answer `--done` once they say they paid (or
+     `--decline`). It expires after 5 minutes.
    - `requires_login`: the shop wants the user signed in to their account
      there. Give the user `sign_in.url` (theirs only: it works on the first
      device that opens it), tell them it works for 30 minutes, and wait
@@ -134,8 +151,7 @@ CLI exit codes: 0 completed, 1 failed or error, 2 needs payment, 3 cancelled,
 
 - Only make purchases the user asked for, within the budget they gave.
 - Never pay a payment link yourself, and never ask for, store or invent card
-  numbers. Live purchases are paid from the user's own wallet: OpenIntents
-  types its card into the shop's form itself, and never shows it to you.
+  numbers. Payment happens on the hosted payment page or from the balance.
 - Never open a sign-in link, an `input_request.url`, a secret request's `url`
   or a live link yourself, and never log a secret's values. Never ask the
   user for a password, a card PIN, a UPI PIN or a bank OTP: ask only what

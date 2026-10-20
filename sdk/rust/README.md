@@ -115,7 +115,10 @@ API hold the request up to 50 seconds until the intent finishes or pauses.
 A question in `input_request` can offer `choices` (answer with one's `id`) or
 ask a form of `fields` (answer with `AnswerInput::values(id, [("name", "value")])`);
 `expects` says what a plain answer looks like. A `sensitive` question (an
-identity document) is answered only on `input_request.url`.
+identity document) is answered only on `input_request.url`. With
+`.pay_at_shop(true)` on create (live keys), the payer pays the shop
+themselves: an `InputKind::Payment` question shows the shop's payment code at
+`input_request.image_url`, answered with `AnswerInput::done(id)` once they paid.
 
 ## Secrets, sign-ins and live links
 
