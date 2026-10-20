@@ -42,7 +42,15 @@ class RateLimit(TypedDict):
 
 
 class PaymentRequest(TypedDict, total=False):
-    reason: Literal["insufficient_balance", "over_limit", "requested"]
+    reason: Literal[
+        "insufficient_balance",
+        "over_limit",
+        "requested",
+        "connect_wallet",
+        "add_money",
+        "identity_check",
+        "wallet_processing",
+    ]
     payment_url: str
     merchant: str | None
     total: int

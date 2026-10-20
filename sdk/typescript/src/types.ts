@@ -80,7 +80,14 @@ export interface CreateIntentParams {
 export type CountrySource = "explicit" | "payer" | "end_user_ip" | "request_ip" | "default";
 
 export interface PaymentRequest {
-  reason: "insufficient_balance" | "over_limit" | "requested";
+  reason:
+    | "insufficient_balance"
+    | "over_limit"
+    | "requested"
+    | "connect_wallet"
+    | "add_money"
+    | "identity_check"
+    | "wallet_processing";
   payment_url: string;
   merchant?: string | null;
   total: number;

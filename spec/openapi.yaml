@@ -2130,11 +2130,35 @@ components:
 
     PaymentRequest:
       type: object
+      description: |
+        What the payer has to do before a waiting purchase goes on. Send
+        them `payment_url`. A purchase paid from the payer's wallet waits on
+        a step in it, and goes back to `queued` by itself once the step is
+        done; `fee` is then `0`.
       required: [reason, payment_url, total, fee, currency, expires_at]
       properties:
         reason:
           type: string
-          enum: [insufficient_balance, over_limit, requested]
+          description: |
+            Why the purchase waits:
+
+            - `insufficient_balance`: the balance is short of `total` plus
+              `fee`.
+            - `over_limit`: the purchase is over a spending limit; on a
+              wallet, the payer raises the limit they set.
+            - `requested`: you asked for the payer to see a link first
+              (`require_payment_link`).
+            - `connect_wallet`: the payer connects their wallet, or signs in
+              to it again.
+            - `add_money`: the wallet is short of `total`; the payer adds
+              money to it.
+            - `identity_check`: the wallet needs the payer to confirm who
+              they are first.
+            - `wallet_processing`: the wallet is still taking the money (from
+              a card the payer saved, say); the link shows how it is going.
+
+            Others may appear.
+          enum: [insufficient_balance, over_limit, requested, connect_wallet, add_money, identity_check, wallet_processing]
         payment_url:
           type: string
           format: uri
