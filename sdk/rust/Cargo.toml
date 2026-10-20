@@ -2,7 +2,7 @@
 name = "openintents"
 version = "0.2.0"
 edition = "2021"
-rust-version = "1.80"
+rust-version = "1.88"
 license = "GPL-3.0-or-later"
 description = "Rust SDK for OpenIntents, the agentic API to buy anything"
 repository = "https://github.com/tinyhumansai/openintents"
@@ -22,7 +22,7 @@ futures-core = "0.3"
 tokio = { version = "1", features = ["time"] }
 uuid = { version = "1", features = ["v4"] }
 hmac = "0.13"
-sha2 = "0.10"
+sha2 = "0.11"
 hex = "0.4"
 rand = "0.8"
 
