@@ -43,7 +43,6 @@ class RateLimit(TypedDict):
 
 class PaymentRequest(TypedDict, total=False):
     reason: Literal[
-        "insufficient_balance",
         "over_limit",
         "requested",
         "connect_wallet",
@@ -223,21 +222,11 @@ class IntentList(TypedDict, total=False):
     next_cursor: str | None
 
 
-class Balance(TypedDict, total=False):
-    object: Literal["balance"]
-    available: int
-    held: int
-    currency: str
-    customer: str | None
-    #: The most that may leave the balance in a UTC calendar month, in cents; None for no limit.
-    monthly_limit: int | None
-    #: The most one purchase may cost, merchant total plus fee, in cents; None for no limit.
-    per_intent_limit: int | None
-    spent_this_month: int
-
-
 class Limits(TypedDict):
-    """What a customer may spend, in cents, counting the merchant's total plus the fee. None is no limit."""
+    """What a customer may spend, in cents, counting the cart's total of each purchase their wallet paid.
+
+    None is no limit. Checked before anything is paid; an intent over one fails with limit_exceeded.
+    """
 
     per_intent: int | None
     monthly: int | None
@@ -251,7 +240,7 @@ class LimitsParams(TypedDict, total=False):
 
 
 class Customer(TypedDict, total=False):
-    """Someone you buy for, with their own balance and browser profile."""
+    """Someone you buy for, with their own wallet and browser profile."""
 
     id: str
     object: Literal["customer"]
@@ -267,23 +256,6 @@ class CustomerList(TypedDict, total=False):
     object: Literal["list"]
     data: list[Customer]
     next_cursor: str | None
-
-
-TopupStatus = Literal["open", "paid", "expired"]
-
-
-class Topup(TypedDict, total=False):
-    """A payment link that adds `amount` to a balance once paid."""
-
-    id: str
-    object: Literal["topup"]
-    amount: int
-    currency: str
-    customer: str | None
-    status: TopupStatus
-    url: str
-    expires_at: str
-    created_at: str
 
 
 class Event(TypedDict, total=False):
@@ -543,7 +515,7 @@ class PortalSession(TypedDict):
 
 
 #: What a secret holds, and so which fields it takes.
-SecretKind = Literal["card", "address", "contact", "identity_document", "shop_password", "loyalty"]
+SecretKind = Literal["address", "contact", "identity_document", "shop_password", "loyalty"]
 
 
 class Secret(TypedDict):
@@ -555,7 +527,7 @@ class Secret(TypedDict):
     customer: str | None
     kind: SecretKind
     label: str
-    #: What a person may be shown to recognise it, such as "Visa ••4242".
+    #: What a person may be shown to recognise it, such as "Paris, FR" for an address.
     mask: str
     #: The few fields its kind keeps in the clear.
     public: dict[str, str]
