@@ -55,9 +55,24 @@ key (made at https://openintents.io/dashboard/api-keys), sent as
 
 5. Read the result:
    - `completed`: report merchant, items, total, fee and confirmation.
-   - `requires_payment`: the balance can't cover it. Show the user what it is
-     buying and give them `payment.payment_url`. Then wait again
-     (`openintents status <id> --wait`).
+   - `requires_payment`: show the user what it is buying, explain
+     `payment.reason`, and give them `payment.payment_url`:
+     - `insufficient_balance`: the balance cannot cover the total plus fee.
+     - `over_limit`: the purchase exceeds a spending limit; for a wallet,
+       the user raises their limit on the payment page.
+     - `requested`: a payment link was requested before proceeding.
+     - `connect_wallet`: the user needs to connect their wallet or sign in
+       to it again.
+     - `add_money`: the user needs to add money to their wallet.
+     - `identity_check`: the user needs to confirm their identity on the
+       payment page. Never ask for identity documents in the chat.
+     - `wallet_processing`: the wallet is processing the payment; the link
+       shows its progress.
+
+     For an unknown reason, say the purchase is waiting on a payment step
+     and direct the user to the link without guessing why. Then wait again
+     (`openintents status <id> --wait`); wallet purchases resume automatically
+     once the step is done.
    - `requires_input`: the agent is signing the user in to the shop
      (`input_request.shop`) and needs something only they know. Ask them
      exactly `input_request.prompt`, naming the shop. Send their reply right
