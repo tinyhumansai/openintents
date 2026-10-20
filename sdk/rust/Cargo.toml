@@ -2,7 +2,7 @@
 name = "openintents"
 version = "0.2.0"
 edition = "2021"
-rust-version = "1.80"
+rust-version = "1.85"
 license = "GPL-3.0-or-later"
 description = "Rust SDK for OpenIntents, the agentic API to buy anything"
 repository = "https://github.com/tinyhumansai/openintents"
