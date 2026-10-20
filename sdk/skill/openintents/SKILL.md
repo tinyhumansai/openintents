@@ -13,8 +13,8 @@ metadata:
 
 OpenIntents is an agentic API for transactions: you send an intent in plain
 language and it completes the purchase end to end, then returns a structured
-receipt. Inference, browser, compute and bandwidth are free; completed
-transactions carry a 5% fee that is shown on every receipt.
+receipt. Inference, browser, compute and bandwidth are free. OpenIntents' fee
+is zero for now, as shown on every receipt.
 
 ## Connect
 
