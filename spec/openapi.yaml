@@ -2245,7 +2245,10 @@ components:
             `image_url` is a picture of the shop's payment code to scan with
             a UPI app, and `prompt` names the amount. Answer `done` once they
             paid, or `decline`; it takes no value. It expires after 5
-            minutes, and the agent may show a fresh code once more.
+            minutes. A payment not confirmed by then is never asked for
+            again, since the payer may have paid all the same: the intent
+            completes if the shop shows the order, and otherwise fails with
+            `needs_review`.
           enum: [phone, email, code, approval, detail, sensitive, payment]
         shop:
           type: string
