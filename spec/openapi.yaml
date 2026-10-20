@@ -1897,8 +1897,8 @@ components:
             whose `image_url` is a picture of the shop's own payment code (a
             UPI QR code); the payer scans it in their own app and you answer
             `done` once they paid, or they tap the button on `url`. The order
-            then goes through, and only the fee comes from your balance (none
-            when the intent's currency is not your balance's). Live keys only:
+            then goes through. The payer's wallet is not used, and the fee is
+            waived for now. Live keys only:
             a test key's intent stops at the payment step as always. Where it
             is not available for your key, creating the intent is
             `503 pay_at_shop_unavailable`.
