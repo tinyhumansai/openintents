@@ -1892,13 +1892,18 @@ components:
           type: boolean
           default: false
           description: |
-            `true`: the payer pays the shop themselves. At the payment step
+            `true`: the payer pays the shop themselves, and the payer's wallet
+            is not used. At the payment step the agent takes cash on delivery
+            where the shop offers it: the order goes through, the payer pays
+            when it arrives, and the receipt's `paid_with` is
+            `cash_on_delivery`. Otherwise it takes the shop's UPI QR code:
             the intent waits in `requires_input` with a `payment` request
-            whose `image_url` is a picture of the shop's own payment code (a
-            UPI QR code); the payer scans it in their own app and you answer
-            `done` once they paid, or they tap the button on `url`. The order
-            then goes through. The payer's wallet is not used, and the fee is
-            waived for now. Live keys only:
+            whose `image_url` is a picture of the code and whose `upi_url`,
+            when the page gave one, is the same payment as a `upi://pay` link
+            to open in a UPI app on the phone; the payer pays in their own
+            app and you answer `done` once they paid, or they tap the button
+            on `url`. The order then goes through, with `paid_with`
+            `upi_qr`. The fee is waived for now. Live keys only:
             a test key's intent stops at the payment step as always. Where it
             is not available for your key, creating the intent is
             `503 pay_at_shop_unavailable`.
@@ -2189,14 +2194,16 @@ components:
             the answer is never returned. `POST /intents/{id}/input` refuses
             any answer but a decline (`422 answer_on_page`).
 
-            `payment`: the payer pays the shop themselves (`pay_at_shop`).
-            `image_url` is a picture of the shop's payment code to scan with
-            a UPI app, and `prompt` names the amount. Answer `done` once they
-            paid, or `decline`; it takes no value. It expires after 5
-            minutes. A payment not confirmed by then is never asked for
-            again, since the payer may have paid all the same: the intent
-            completes if the shop shows the order, and otherwise fails with
-            `needs_review`.
+            `payment`: the payer pays the shop themselves (`pay_at_shop`) by
+            its UPI QR code, the shop offering no cash on delivery.
+            `image_url` is a picture of the code to scan with a UPI app,
+            `upi_url`, when present, the same payment as a `upi://pay` link to
+            open in a UPI app on the phone, and `prompt` names the amount.
+            Answer `done` once they paid, or `decline`; it takes no value. It
+            expires after 5 minutes. A payment not confirmed by then is never
+            asked for again, since the payer may have paid all the same: the
+            intent completes if the shop shows the order, and otherwise fails
+            with `needs_review`.
           enum: [phone, email, code, approval, detail, sensitive, payment]
         shop:
           type: string
@@ -2264,6 +2271,14 @@ components:
             A `payment`'s picture (JPEG) of the shop's payment code, for the
             payer to scan; served only while the request waits. Absent for
             the other kinds. Like `url`, whoever has it can see it.
+        upi_url:
+          type: string
+          format: uri
+          description: |
+            A `payment`'s UPI payment link (`upi://pay?…`) for the same
+            payment as the code, when the shop's page gave one: open it in a
+            UPI app on the phone instead of scanning. Its amount is the one
+            asked. Absent for the other kinds, and when the page gave none.
         expires_at:
           type: string
           format: date-time
@@ -2349,6 +2364,15 @@ components:
         receipt_url:
           type: [string, "null"]
           format: uri
+        paid_with:
+          type: string
+          enum: [wallet, upi_qr, cash_on_delivery]
+          description: |
+            How the shop was paid: `wallet`, the payer's own wallet;
+            `cash_on_delivery` or `upi_qr`, the payer themselves
+            (`pay_at_shop`), when the order arrived or by the shop's UPI QR
+            code. Absent on receipts from before this field and on test
+            purchases.
 
     IntentError:
       type: object

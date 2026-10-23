@@ -32,10 +32,13 @@ export interface CreateIntentParams {
    */
   sign_in_agent?: boolean;
   /**
-   * The payer pays the shop themselves (default `false`). At the payment step
-   * the intent waits in `requires_input` with a `payment` request whose
-   * `image_url` is a picture of the shop's payment code (a UPI QR code); answer
-   * `done` once they paid, or decline. No wallet is used, and the fee is waived for now.
+   * The payer pays the shop themselves (default `false`): cash on delivery
+   * where the shop offers it (the order goes through, `paid_with`
+   * `cash_on_delivery`), else the shop's UPI QR code: the intent waits in
+   * `requires_input` with a `payment` request whose `image_url` is a picture
+   * of the code and whose `upi_url`, when present, is the same payment as a
+   * link to open in a UPI app; answer `done` once they paid, or decline. No
+   * wallet is used, and the fee is waived for now.
    * Live keys only; where it is not available for your key, creating the
    * intent is a 503 `pay_at_shop_unavailable`.
    */
@@ -207,6 +210,12 @@ export interface InputRequest {
    * `url`, whoever has it can see it.
    */
   image_url?: string;
+  /**
+   * A `payment`'s UPI payment link (`upi://pay?…`) for the same payment as the
+   * code, when the shop's page gave one: open it in a UPI app on the phone
+   * instead of scanning. Absent for other kinds, and when the page gave none.
+   */
+  upi_url?: string;
   expires_at: string;
   /** How many more times the agent may ask for this `kind` in this purchase, after this one. */
   attempts_left: number;
@@ -241,6 +250,12 @@ export interface Receipt {
   currency: string;
   confirmation?: string | null;
   receipt_url?: string | null;
+  /**
+   * How the shop was paid: `wallet` (the payer's own wallet), `cash_on_delivery`
+   * or `upi_qr` (the payer themselves, `pay_at_shop`). Absent on older
+   * receipts and test purchases.
+   */
+  paid_with?: "wallet" | "upi_qr" | "cash_on_delivery";
 }
 
 export interface IntentError {
