@@ -419,6 +419,12 @@ pub struct InputRequest {
     /// other kinds. Like `url`, whoever has it can see it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub image_url: Option<String>,
+    /// A [`InputKind::Payment`]'s UPI payment link (`upi://pay?…`) for the
+    /// same payment as the code, when the shop's page gave one: open it in a
+    /// UPI app on the phone instead of scanning. Absent for other kinds, and
+    /// when the page gave none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub upi_url: Option<String>,
     pub expires_at: String,
     /// How many more times the agent may ask for this kind in this purchase,
     /// after this one.
@@ -538,6 +544,11 @@ pub struct Receipt {
     pub confirmation: Option<String>,
     #[serde(default)]
     pub receipt_url: Option<String>,
+    /// How the shop was paid: `wallet` (the payer's own wallet),
+    /// `cash_on_delivery` or `upi_qr` (the payer themselves, `pay_at_shop`).
+    /// Absent on older receipts and test purchases.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub paid_with: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

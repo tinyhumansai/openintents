@@ -119,8 +119,11 @@ ask a form of `fields` (answer with `{ input, values: { name: value } }`);
 `expects` says what a plain answer looks like. A `sensitive` question (an
 identity document) is answered only on `input_request.url`. With
 `pay_at_shop: true` on create (live keys), the payer pays the shop themselves:
-a `payment` question shows the shop's payment code at `input_request.image_url`,
-answered with `{ input, done: true }` once they paid.
+cash on delivery where the shop offers it (the order goes through, the
+receipt's `paid_with` is `cash_on_delivery`), else a `payment` question shows
+the shop's UPI QR code at `input_request.image_url` (and the same payment as a
+link in `input_request.upi_url`, when the page gave one), answered with
+`{ input, done: true }` once they paid (`paid_with` `upi_qr`).
 
 ### Secrets, sign-ins and live links
 

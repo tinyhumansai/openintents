@@ -4,6 +4,16 @@ All three SDKs share one version. Format: [Keep a Changelog](https://keepachange
 
 ## [Unreleased]
 
+### Added
+
+- API: with `pay_at_shop`, the agent takes cash on delivery where the shop
+  offers it, before the shop's UPI QR code; a `payment` question carries
+  `upi_url`, the same payment as a `upi://pay` link to open in a UPI app on
+  the phone, when the shop's page gave one; and the receipt's `paid_with`
+  says how the shop was paid (`wallet`, `cash_on_delivery`, `upi_qr`).
+- SDKs: `upi_url` on `InputRequest` and `paid_with` on `Receipt` (TypeScript,
+  Python, Rust); the Rust CLI's `show` prints the link.
+
 ### Removed (breaking)
 
 Live purchases are paid only from the payer's own wallet, so the API's own

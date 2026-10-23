@@ -214,6 +214,7 @@ PAYMENT_REQUEST = {
     "length": None,
     "url": "https://openintents.io/input/inp_1",
     "image_url": "https://openintents.io/input/inp_1/code.jpg",
+    "upi_url": "upi://pay?pa=blinkit@upi&pn=Blinkit&am=249.00&cu=INR",
     "expires_at": "2026-10-01T00:05:00Z",
     "attempts_left": 1,
 }
@@ -226,6 +227,7 @@ def test_create_sends_pay_at_shop_and_reads_the_payment_code():
     assert json.loads(calls[0].content) == {"intent": "a lamp", "pay_at_shop": True}
     assert got["input_request"]["kind"] == "payment"
     assert got["input_request"]["image_url"] == "https://openintents.io/input/inp_1/code.jpg"
+    assert got["input_request"]["upi_url"] == "upi://pay?pa=blinkit@upi&pn=Blinkit&am=249.00&cu=INR"
 
 
 async def test_async_create_sends_pay_at_shop():

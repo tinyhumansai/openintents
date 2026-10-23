@@ -111,10 +111,13 @@ key (made at https://openintents.io/dashboard/api-keys), sent as
      accepted by the answer endpoint (`422 answer_on_page` otherwise).
 
      When `input_request.kind` is `payment` (the intent was created with
-     `pay_at_shop`), the user pays the shop themselves: show them
-     `input_request.image_url`, a picture of the shop's payment code to scan
-     with a UPI app, and answer `--done` once they say they paid (or
-     `--decline`). It expires after 5 minutes.
+     `pay_at_shop` and the shop offered no cash on delivery), the user pays
+     the shop themselves: give them `input_request.upi_url` when present (a
+     `upi://pay` link that opens their UPI app on the phone) and
+     `input_request.image_url`, a picture of the shop's QR code to scan with
+     a UPI app, and answer `--done` once they say they paid (or `--decline`).
+     It expires after 5 minutes. With cash on delivery the order goes through
+     with no question, and the receipt's `paid_with` says so.
    - `requires_login`: the shop wants the user signed in to their account
      there. Give the user `sign_in.url` (theirs only: it works on the first
      device that opens it), tell them it works for 30 minutes, and wait

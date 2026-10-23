@@ -91,9 +91,11 @@ class SignInHint(TypedDict, total=False):
 #: or ID numbers), and the answer goes back to the agent.
 #: A "sensitive" question wants an identity document: the payer answers it on
 #: its url only (anything else but a decline is a 422 answer_on_page).
-#: A "payment" asks the payer to pay the shop themselves (pay_at_shop): show
-#: them image_url, a picture of the shop's payment code to scan with a UPI
-#: app, and answer done=True once they paid (it has no value), or decline.
+#: A "payment" asks the payer to pay the shop themselves (pay_at_shop) by its
+#: UPI QR code: show them image_url, a picture of the code to scan with a UPI
+#: app (and upi_url, when present, the same payment as a link to open in a UPI
+#: app on the phone), and answer done=True once they paid (it has no value), or
+#: decline.
 InputKind = Literal["phone", "email", "code", "approval", "detail", "sensitive", "payment"]
 
 
@@ -166,6 +168,10 @@ class InputRequest(TypedDict, total=False):
     #: scan; served only while the request waits, absent for other kinds. Like
     #: url, whoever has it can see it.
     image_url: str
+    #: A "payment"'s UPI payment link (upi://pay?...) for the same payment as the
+    #: code, when the shop's page gave one: open it in a UPI app on the phone
+    #: instead of scanning. Absent for other kinds, and when the page gave none.
+    upi_url: str
     expires_at: str
     #: How many more times the agent may ask for this kind in this purchase, after this one.
     attempts_left: int
@@ -185,6 +191,10 @@ class Receipt(TypedDict, total=False):
     currency: str
     confirmation: str | None
     receipt_url: str | None
+    #: How the shop was paid: "wallet" (the payer's own wallet), "cash_on_delivery"
+    #: or "upi_qr" (the payer themselves, pay_at_shop). Absent on older receipts
+    #: and test purchases.
+    paid_with: Literal["wallet", "upi_qr", "cash_on_delivery"]
 
 
 class IntentError(TypedDict):

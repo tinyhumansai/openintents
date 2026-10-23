@@ -213,13 +213,15 @@ describe("OpenIntents client", () => {
     const payment: InputRequest = {
       id: "inp_1", kind: "payment", shop: "blinkit.com", prompt: "Pay 249.00 INR", options: [], choices: [], fields: [],
       expects: "text", channel: null, length: null, url: "https://openintents.io/input/inp_1",
-      image_url: "https://openintents.io/input/inp_1/code.jpg", expires_at: "2026-10-01T00:05:00Z", attempts_left: 1,
+      image_url: "https://openintents.io/input/inp_1/code.jpg", upi_url: "upi://pay?pa=blinkit@upi&pn=Blinkit&am=249.00&cu=INR",
+      expires_at: "2026-10-01T00:05:00Z", attempts_left: 1,
     };
     const { fetch, calls } = mockFetch({ status: 201, body: intent({ status: "requires_input", input_request: payment }) });
     const got = await make(fetch).intents.create({ intent: "a lamp", pay_at_shop: true });
     expect(JSON.parse(String(calls[0]!.init?.body))).toEqual({ intent: "a lamp", pay_at_shop: true });
     expect(got.input_request?.kind).toBe("payment");
     expect(got.input_request?.image_url).toBe("https://openintents.io/input/inp_1/code.jpg");
+    expect(got.input_request?.upi_url).toBe("upi://pay?pa=blinkit@upi&pn=Blinkit&am=249.00&cu=INR");
   });
 
   it("answers an input request with a value, a decline or done", async () => {

@@ -61,6 +61,9 @@ pub fn intent(intent: &Intent, json: bool) {
         if let Some(image) = &r.image_url {
             println!("  payment code to scan (theirs only): {image}");
         }
+        if let Some(link) = &r.upi_url {
+            println!("  or open in a UPI app on the phone: {link}");
+        }
         if !r.options.is_empty() {
             println!("  options: {}", r.options.join(", "));
         }
