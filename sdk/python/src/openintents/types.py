@@ -195,9 +195,19 @@ class Receipt(TypedDict, total=False):
     #: or "upi_qr" (the payer themselves, pay_at_shop). Absent on older receipts
     #: and test purchases.
     paid_with: Literal["wallet", "upi_qr", "cash_on_delivery"]
+    #: What was bought, where it is not an order of goods: "ride", a ride
+    #: requested from a ride app, its product as the item and its fare as the
+    #: total. Absent on orders.
+    kind: Literal["ride"]
+    #: How far it got, where kind says: a "ride" is "requested", the app looking
+    #: for a driver, which none may have taken yet. Never a PIN or OTP.
+    state: Literal["requested"]
 
 
 class IntentError(TypedDict):
+    #: Why the intent did not finish: on a failed one, such as "over_max_amount"
+    #: or "needs_review"; on a cancelled one, "may_be_placed" (cancelled after
+    #: its order was placed at the shop, which may have it).
     code: str
     message: str
 

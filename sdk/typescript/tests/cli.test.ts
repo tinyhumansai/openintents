@@ -322,4 +322,22 @@ describe("openintents status", () => {
     expect(r.out).toContain("payment code to scan (theirs only): https://openintents.io/input/inp_1/code.jpg");
     expect(r.out).toContain("--input inp_1 --done");
   });
+
+  it("status says a ride was requested, and why a cancelled intent may still be placed", async () => {
+    const ride = {
+      id: "int_1", object: "intent", status: "completed", intent: "an auto", test: false, created_at: "x",
+      result: {
+        merchant: "Uber", items: [], total: 18000, fee: 0, currency: "inr", confirmation: null, receipt_url: null,
+        paid_with: "cash_on_delivery", kind: "ride", state: "requested",
+      },
+    };
+    const r = await cli(["status", "int_1"], [{ body: ride }]);
+    expect(r.out).toContain("ride requested");
+    const cancelled = {
+      id: "int_2", object: "intent", status: "cancelled", intent: "an auto", test: false, created_at: "x",
+      error: { code: "may_be_placed", message: "cancelled after the order was placed at the shop" },
+    };
+    const c = await cli(["status", "int_2"], [{ body: cancelled }]);
+    expect(c.out).toContain("error may_be_placed: cancelled after the order was placed at the shop");
+  });
 });

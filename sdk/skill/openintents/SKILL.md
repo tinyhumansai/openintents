@@ -117,7 +117,11 @@ key (made at https://openintents.io/dashboard/api-keys), sent as
      `input_request.image_url`, a picture of the shop's QR code to scan with
      a UPI app, and answer `--done` once they say they paid (or `--decline`).
      It expires after 5 minutes. With cash on delivery the order goes through
-     with no question, and the receipt's `paid_with` says so.
+     with no question, and the receipt's `paid_with` says so. A ride is paid
+     to the driver in cash: its receipt says `kind` `ride` and `state`
+     `requested`, which means the app is looking for a driver, not that one
+     took it. Tell the user to follow the ride, and find its PIN, in the
+     ride app.
    - `requires_login`: the shop wants the user signed in to their account
      there. Give the user `sign_in.url` (theirs only: it works on the first
      device that opens it), tell them it works for 30 minutes, and wait
@@ -162,6 +166,9 @@ CLI exit codes: 0 completed, 1 failed or error, 2 needs payment, 3 cancelled,
 - Use a test key (`oi_test_...`) when the user is only trying things out: test
   intents run end to end but never charge.
 - Cancel (`openintents cancel <id>`) anything the user changes their mind
-  about before it pays; cancelled intents are free.
+  about before it pays; cancelled intents are free. A cancel after the order
+  was placed at the shop still stops the purchase, but comes back with
+  `error.code` `may_be_placed`: the shop may have the order, so tell the
+  user to check it there.
 
 Docs: https://openintents.io/docs. Agent-readable index: https://openintents.io/llms.txt.

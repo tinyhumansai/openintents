@@ -621,6 +621,31 @@ async fn run_and_list_still_work_and_take_context_and_status() {
 }
 
 #[tokio::test]
+async fn status_says_a_ride_was_requested_and_why_a_cancel_may_still_be_placed() {
+    let ride = json!({ "id": "int_1", "object": "intent", "status": "completed", "intent": "an auto", "test": false,
+        "created_at": "x", "result": { "merchant": "Uber",
+        "items": [{ "name": "Uber Go", "quantity": 1, "amount": 18000 }], "total": 18000, "fee": 0, "currency": "inr",
+        "confirmation": null, "receipt_url": null, "paid_with": "cash_on_delivery", "kind": "ride", "state": "requested" } });
+    let server = serve("GET", "/intents/int_1", 200, ride).await;
+    let r = openintents(&server, &["status", "int_1"], "").await;
+    assert!(r.out.contains("Uber: 18000 inr (fee 0)"), "{}{}", r.out, r.err);
+    assert!(r.out.contains("ride requested"), "{}", r.out);
+
+    let cancelled = json!({ "id": "int_2", "object": "intent", "status": "cancelled", "intent": "an auto",
+        "test": false, "created_at": "x",
+        "error": { "code": "may_be_placed", "message": "cancelled after the order was placed at the shop" } });
+    let server = serve("GET", "/intents/int_2", 200, cancelled).await;
+    let r = openintents(&server, &["status", "int_2"], "").await;
+    assert!(
+        r.out
+            .contains("error may_be_placed: cancelled after the order was placed at the shop"),
+        "{}{}",
+        r.out,
+        r.err
+    );
+}
+
+#[tokio::test]
 async fn status_shows_a_payments_code_to_scan_and_answers_it_with_done() {
     let intent = json!({ "id": "int_1", "object": "intent", "status": "requires_input", "intent": "a lamp", "test": false,
         "created_at": "x", "input_request": { "id": "inp_1", "kind": "payment", "shop": "blinkit.com",

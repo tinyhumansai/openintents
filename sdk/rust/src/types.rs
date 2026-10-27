@@ -549,10 +549,24 @@ pub struct Receipt {
     /// Absent on older receipts and test purchases.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub paid_with: Option<String>,
+    /// What was bought, where it is not an order of goods: `ride`, a ride
+    /// requested from a ride app, its product as the item and its fare as
+    /// the total. Absent on orders.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+    /// How far it got, where `kind` says: a `ride` is `requested`, the app
+    /// looking for a driver, which none may have taken yet. Never a PIN or
+    /// OTP.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub state: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IntentError {
+    /// Why the intent did not finish: on a `failed` one, such as
+    /// `over_max_amount` or `needs_review`; on a `cancelled` one,
+    /// `may_be_placed` (cancelled after its order was placed at the shop,
+    /// which may have it).
     pub code: String,
     pub message: String,
 }

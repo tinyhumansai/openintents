@@ -150,6 +150,13 @@ paths:
     post:
       operationId: cancelIntent
       summary: Cancel an intent that has not paid yet
+      description: |
+        Cancels an intent that is `queued`, `running`, `requires_input`,
+        `requires_payment` or `requires_login`. Cancelled intents are free.
+        One cancelled after its order was placed at the shop (a cash on
+        delivery order or a ride, say) still stops, but the shop may have
+        the order: it comes back `cancelled` with `error.code`
+        `may_be_placed`. Check the order with the shop.
       parameters:
         - $ref: "#/components/parameters/IntentId"
         - $ref: "#/components/parameters/IdempotencyKey"
@@ -1903,7 +1910,10 @@ components:
             to open in a UPI app on the phone; the payer pays in their own
             app and you answer `done` once they paid, or they tap the button
             on `url`. The order then goes through, with `paid_with`
-            `upi_qr`. The fee is waived for now. Live keys only:
+            `upi_qr`. A ride (Uber, Ola, Rapido) is paid to the driver in
+            cash, never by a code: it completes once the app is looking for
+            a driver, with `paid_with` `cash_on_delivery`, `kind` `ride` and
+            `state` `requested`. The fee is waived for now. Live keys only:
             a test key's intent stops at the payment step as always. Where it
             is not available for your key, creating the intent is
             `503 pay_at_shop_unavailable`.
@@ -2050,10 +2060,15 @@ components:
             type: string
           description: The shops you let the purchase fill secrets on.
         result:
+          description: Set once `completed`.
           oneOf:
             - $ref: "#/components/schemas/Receipt"
             - type: "null"
         error:
+          description: |
+            Why it did not finish, once `failed`. Also set on a `cancelled`
+            intent whose order was already placed at the shop, with code
+            `may_be_placed`: the shop may have the order.
           oneOf:
             - $ref: "#/components/schemas/IntentError"
             - type: "null"
@@ -2373,6 +2388,22 @@ components:
             (`pay_at_shop`), when the order arrived or by the shop's UPI QR
             code. Absent on receipts from before this field and on test
             purchases.
+        kind:
+          type: string
+          enum: [ride]
+          description: |
+            What was bought, where it is not an order of goods: `ride`, a ride
+            requested from a ride app (Uber, Ola, Rapido), its product as the
+            item and its fare as the total. Absent on orders. Others may
+            appear.
+        state:
+          type: string
+          enum: [requested]
+          description: |
+            How far it got, where `kind` says: a `ride` is `requested`, the
+            app looking for a driver, which none may have taken yet. Follow
+            the ride, and find its PIN, in the ride app: a receipt never
+            carries a PIN or OTP. Others may appear.
 
     IntentError:
       type: object
@@ -2380,7 +2411,13 @@ components:
       properties:
         code:
           type: string
-          examples: [over_max_amount, out_of_stock, merchant_unavailable, login_required, needs_information, input_expired, limit_exceeded]
+          description: |
+            Why the intent did not finish. On a `failed` intent, such as
+            `over_max_amount` or `out_of_stock`; `needs_review` when its
+            payment step began but its outcome is unknown, so the order may
+            have gone through. On a `cancelled` one, `may_be_placed`: it was
+            cancelled after its order was placed at the shop.
+          examples: [over_max_amount, out_of_stock, merchant_unavailable, login_required, needs_information, input_expired, limit_exceeded, needs_review, may_be_placed]
         message:
           type: string
 

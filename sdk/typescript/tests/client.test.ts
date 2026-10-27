@@ -224,6 +224,27 @@ describe("OpenIntents client", () => {
     expect(got.input_request?.upi_url).toBe("upi://pay?pa=blinkit@upi&pn=Blinkit&am=249.00&cu=INR");
   });
 
+  it("reads a ride's receipt, and a cancel after the order was placed", async () => {
+    const ride = intent({
+      status: "completed",
+      result: {
+        merchant: "Uber", items: [{ name: "Uber Go", quantity: 1, amount: 18000 }], total: 18000, fee: 0, currency: "inr",
+        confirmation: null, receipt_url: null, paid_with: "cash_on_delivery", kind: "ride", state: "requested",
+      },
+    });
+    const cancelled = intent({
+      status: "cancelled",
+      error: { code: "may_be_placed", message: "cancelled after the order was placed at the shop, so the shop may have it" },
+    });
+    const { fetch, calls } = mockFetch({ body: ride }, { body: cancelled });
+    const oi = make(fetch);
+    const got = await oi.intents.get("int_1");
+    expect([got.result?.kind, got.result?.state, got.result?.paid_with]).toEqual(["ride", "requested", "cash_on_delivery"]);
+    const stopped = await oi.intents.cancel("int_1");
+    expect(calls[1]!.url).toBe("https://api.test/v1/intents/int_1/cancel");
+    expect([stopped.status, stopped.error?.code]).toEqual(["cancelled", "may_be_placed"]);
+  });
+
   it("answers an input request with a value, a decline or done", async () => {
     const running = { body: intent({ status: "running" }) };
     const { fetch, calls } = mockFetch(running, running, running);

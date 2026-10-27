@@ -37,6 +37,7 @@ export function describeIntent(intent: Intent): string {
   if (intent.result) {
     const r = intent.result;
     lines.push(`  ${r.merchant}: ${money(r.total, r.currency)} (+${money(r.fee, r.currency)} fee)${r.confirmation ? `, confirmation ${r.confirmation}` : ""}`);
+    if (r.kind && r.state) lines.push(`  ${r.kind} ${r.state}`);
   }
   if (intent.error) lines.push(`  error ${intent.error.code}: ${intent.error.message}`);
   return lines.join("\n");
