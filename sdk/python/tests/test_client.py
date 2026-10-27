@@ -230,6 +230,35 @@ def test_create_sends_pay_at_shop_and_reads_the_payment_code():
     assert got["input_request"]["upi_url"] == "upi://pay?pa=blinkit@upi&pn=Blinkit&am=249.00&cu=INR"
 
 
+def test_reads_a_ride_receipt_and_a_cancel_after_the_order_was_placed():
+    ride = intent(
+        status="completed",
+        result={
+            "merchant": "Uber",
+            "items": [{"name": "Uber Go", "quantity": 1, "amount": 18000}],
+            "total": 18000,
+            "fee": 0,
+            "currency": "inr",
+            "confirmation": None,
+            "receipt_url": None,
+            "paid_with": "cash_on_delivery",
+            "kind": "ride",
+            "state": "requested",
+        },
+    )
+    cancelled = intent(
+        status="cancelled",
+        error={"code": "may_be_placed", "message": "cancelled after the order was placed at the shop"},
+    )
+    calls = []
+    oi = client((200, ride), (200, cancelled), calls=calls)
+    got = oi.intents.get("int_1")
+    assert (got["result"]["kind"], got["result"]["state"]) == ("ride", "requested")
+    stopped = oi.intents.cancel("int_1")
+    assert str(calls[1].url) == "https://api.test/v1/intents/int_1/cancel"
+    assert (stopped["status"], stopped["error"]["code"]) == ("cancelled", "may_be_placed")
+
+
 async def test_async_create_sends_pay_at_shop():
     calls = []
     handler = transport((201, intent(status="queued")), calls=calls)

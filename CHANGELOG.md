@@ -13,6 +13,13 @@ All three SDKs share one version. Format: [Keep a Changelog](https://keepachange
   says how the shop was paid (`wallet`, `cash_on_delivery`, `upi_qr`).
 - SDKs: `upi_url` on `InputRequest` and `paid_with` on `Receipt` (TypeScript,
   Python, Rust); the Rust CLI's `show` prints the link.
+- API: a ride (Uber, Ola, Rapido) paid at the shop is paid to the driver in
+  cash and completes once the app is looking for a driver; its receipt says
+  `kind` `ride` and `state` `requested`. A cancel after the order was placed
+  at the shop still stops the purchase, but the intent comes back
+  `cancelled` with `error.code` `may_be_placed`. No new status.
+- SDKs: `kind` and `state` on `Receipt` (TypeScript, Python, Rust); both
+  CLIs' `status` say a ride was requested.
 
 ### Removed (breaking)
 

@@ -119,6 +119,10 @@ the receipt's `paid_with` is `cash_on_delivery`), else an `InputKind::Payment`
 question shows the shop's UPI QR code at `input_request.image_url` (and the
 same payment as a link in `input_request.upi_url`, when the page gave one),
 answered with `AnswerInput::done(id)` once they paid (`paid_with` `upi_qr`).
+A ride is paid to the driver in cash: its receipt says `kind` `ride` and
+`state` `requested` (the app is looking for a driver; follow it, and find its
+PIN, in the ride app). A cancel after the order was placed at the shop still
+stops, but answers `error.code` `may_be_placed`: check with the shop.
 
 ## Secrets, sign-ins and live links
 

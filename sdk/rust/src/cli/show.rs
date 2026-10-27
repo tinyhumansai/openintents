@@ -75,6 +75,9 @@ pub fn intent(intent: &Intent, json: bool) {
     }
     if let Some(r) = &intent.result {
         println!("  {}: {} {} (fee {})", r.merchant, r.total, r.currency, r.fee);
+        if let (Some(kind), Some(state)) = (&r.kind, &r.state) {
+            println!("  {kind} {state}");
+        }
     }
     if let Some(e) = &intent.error {
         println!("  error {}: {}", e.code, e.message);
