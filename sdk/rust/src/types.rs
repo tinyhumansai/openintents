@@ -299,6 +299,11 @@ pub enum InputKind {
     /// app, and answer with [`AnswerInput::done`] once they paid (it has no
     /// value), or decline. It expires after 5 minutes.
     Payment,
+    /// A check the shop shows (a captcha, a puzzle, "verify your device"):
+    /// send the payer to the request's `url`, where they finish it in a live
+    /// view of the purchase's browser, and answer with [`AnswerInput::done`]
+    /// once they did (it has no value), or decline.
+    Check,
     #[serde(other)]
     Unknown,
 }

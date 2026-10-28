@@ -2219,7 +2219,15 @@ components:
             asked for again, since the payer may have paid all the same: the
             intent completes if the shop shows the order, and otherwise fails
             with `needs_review`.
-          enum: [phone, email, code, approval, detail, sensitive, payment]
+
+            `check`: the shop shows a check before it goes on (a captcha, a
+            puzzle, "verify your device"), which the agent never gets past
+            itself. Send the payer to `url`, where they finish it in a live
+            view of their purchase's browser and tap Done; the purchase then
+            carries on past it in the same browser. Answer `done` once they
+            finished it, or `decline`; it takes no value. Unfinished, the
+            intent fails with `merchant_unavailable`.
+          enum: [phone, email, code, approval, detail, sensitive, payment, check]
         shop:
           type: string
           description: The shop's registrable domain, such as `blinkit.com`.

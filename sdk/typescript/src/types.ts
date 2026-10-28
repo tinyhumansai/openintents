@@ -138,9 +138,19 @@ export interface SignInHint {
  * on its `url` only. A `payment` asks the payer to pay the shop themselves
  * (`pay_at_shop`): show them `image_url`, a picture of the shop's payment code
  * to scan with a UPI app, and answer `done` once they paid (it has no value),
- * or decline.
+ * or decline. A `check` is a captcha or puzzle the shop shows: send the payer
+ * to its `url`, where they finish it in a live view of the purchase's browser,
+ * and answer `done` once they did (it has no value), or decline.
  */
-export type InputKind = "phone" | "email" | "code" | "approval" | "detail" | "sensitive" | "payment";
+export type InputKind =
+  | "phone"
+  | "email"
+  | "code"
+  | "approval"
+  | "detail"
+  | "sensitive"
+  | "payment"
+  | "check";
 
 /** One of the choices a question offers, such as a seat, a fare or a delivery slot. */
 export interface InputChoice {
