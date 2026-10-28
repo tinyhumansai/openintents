@@ -7,6 +7,15 @@ use openintents::{
 };
 use serde::Serialize;
 
+/// How `openintents input` answers a question of `kind`: `--done` for one that
+/// takes no value (an approval, a payment, a check), else a value.
+fn answer_flag(kind: &InputKind) -> &'static str {
+    match kind {
+        InputKind::Approval | InputKind::Payment | InputKind::Check => "--done",
+        _ => "--value <answer>",
+    }
+}
+
 /// The wire name of an enum value (`"in_use"`), for printing.
 fn tag<T: Serialize>(value: &T) -> String {
     serde_json::to_value(value)
@@ -52,11 +61,7 @@ pub fn intent(intent: &Intent, json: bool) {
         println!("  sign in here: {}", s.url);
     }
     if let Some(r) = &intent.input_request {
-        let answer = if matches!(r.kind, InputKind::Approval | InputKind::Payment | InputKind::Check) {
-            "--done"
-        } else {
-            "--value <answer>"
-        };
+        let answer = answer_flag(&r.kind);
         println!("  input needed at {}, ask the payer: {}", r.shop, r.prompt);
         if let Some(image) = &r.image_url {
             println!("  payment code to scan (theirs only): {image}");
@@ -226,4 +231,17 @@ pub fn secret_request(r: &SecretRequestCreated, json: bool) {
             r.url
         )
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_question_that_takes_no_value_is_answered_done_a_check_among_them() {
+        for kind in [InputKind::Approval, InputKind::Payment, InputKind::Check] {
+            assert_eq!(answer_flag(&kind), "--done");
+        }
+        assert_eq!(answer_flag(&InputKind::Code), "--value <answer>");
+    }
 }

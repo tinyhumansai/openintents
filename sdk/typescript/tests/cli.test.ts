@@ -4,8 +4,10 @@ import { join } from "node:path";
 
 import { describe, expect, it, vi } from "vitest";
 
+import { describeIntent } from "../src/cli-format.js";
 import { runCli, type CliIo } from "../src/cli-main.js";
 import { OpenIntents } from "../src/index.js";
+import type { Intent } from "../src/types.js";
 
 type Reply = { status?: number; body?: unknown; bytes?: Uint8Array };
 
@@ -42,6 +44,23 @@ const customer = { id: "cus_1", object: "customer", external_id: "u-7", name: "A
 const session = { id: "ses_1", object: "session", profile: "prf_1", status: "open", test: true, created_at: "2026-10-01T00:00:00Z", expires_at: "2026-10-01T00:15:00Z", url: "https://shop.example/" };
 const profile = { id: "prf_1", object: "profile", customer: "cus_1", status: "idle", created_at: "2026-10-01T00:00:00Z" };
 const secret = { id: "sec_1", object: "secret", customer: null, kind: "loyalty", label: "Flying Blue", mask: "••7890", public: { program: "Flying Blue" }, shops: ["airfrance.com"], default: false, mode: "test", entered_by: "developer", version: 1, created_at: "2026-10-01T00:00:00Z", updated_at: "2026-10-01T00:00:00Z", expires_at: null, last_used_at: null };
+
+describe("describeIntent", () => {
+  const asking = (kind: string) =>
+    describeIntent({
+      id: "int_1",
+      status: "requires_input",
+      intent: "a black t-shirt",
+      input_request: { id: "inp_1", kind, shop: "amazon.in", prompt: "p", url: "https://x/input/inp_1" },
+    } as unknown as Intent);
+
+  it("suggests --done for a question that takes no value, a check among them", () => {
+    for (const kind of ["approval", "payment", "check"]) {
+      expect(asking(kind)).toContain("--input inp_1 --done (or --decline)");
+    }
+    expect(asking("code")).toContain("--input inp_1 --value <answer>");
+  });
+});
 
 describe("openintents customers", () => {
   it("creates a customer from flags, limits in dollars", async () => {

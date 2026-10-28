@@ -159,6 +159,15 @@ fn questions_offer_choices_and_forms_and_are_answered_with_values() {
     assert_eq!(payment.kind, InputKind::Payment);
     assert_eq!(payment.image_url.as_deref(), Some("https://x/input/inp_3/code.jpg"));
 
+    let check: openintents::InputRequest = serde_json::from_value(json!({
+        "id": "inp_4", "kind": "check", "shop": "amazon.in", "prompt": "Finish the check",
+        "url": "https://x/input/inp_4", "expires_at": "t", "attempts_left": 1
+    }))
+    .unwrap();
+    assert_eq!(check.kind, InputKind::Check);
+    assert!(check.choices.is_empty() && check.fields.is_empty());
+    assert_eq!(check.image_url, None);
+
     let answer = serde_json::to_value(AnswerInput::values("inp_1", [("row", "a"), ("dob", "1990-01-02")])).unwrap();
     assert_eq!(
         answer,
