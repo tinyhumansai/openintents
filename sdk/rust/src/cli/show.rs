@@ -52,7 +52,7 @@ pub fn intent(intent: &Intent, json: bool) {
         println!("  sign in here: {}", s.url);
     }
     if let Some(r) = &intent.input_request {
-        let answer = if matches!(r.kind, InputKind::Approval | InputKind::Payment) {
+        let answer = if matches!(r.kind, InputKind::Approval | InputKind::Payment | InputKind::Check) {
             "--done"
         } else {
             "--value <answer>"

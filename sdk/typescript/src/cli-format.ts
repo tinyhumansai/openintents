@@ -27,7 +27,8 @@ export function describeIntent(intent: Intent): string {
   }
   if (intent.input_request) {
     const r = intent.input_request;
-    const answer = r.kind === "approval" || r.kind === "payment" ? "--done" : "--value <answer>";
+    const done = r.kind === "approval" || r.kind === "payment" || r.kind === "check";
+    const answer = done ? "--done" : "--value <answer>";
     lines.push(`  input needed at ${r.shop}, ask the payer: ${r.prompt}`);
     if (r.image_url) lines.push(`  payment code to scan (theirs only): ${r.image_url}`);
     if (r.options?.length) lines.push(`  options: ${r.options.join(", ")}`);

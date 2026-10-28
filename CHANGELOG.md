@@ -6,6 +6,13 @@ All three SDKs share one version. Format: [Keep a Changelog](https://keepachange
 
 ### Added
 
+- API: a `check` question: the shop shows a captcha, a puzzle or "verify
+  your device", and the payer finishes it on the question's `url`, in a live
+  view of the purchase's browser, then answers `done`; the purchase carries
+  on past it. No new status.
+- SDKs: `check` in `InputKind` (TypeScript, Python, Rust); both CLIs'
+  `show` suggest `--done` for it.
+
 - API: with `pay_at_shop`, the agent takes cash on delivery where the shop
   offers it, before the shop's UPI QR code; a `payment` question carries
   `upi_url`, the same payment as a `upi://pay` link to open in a UPI app on

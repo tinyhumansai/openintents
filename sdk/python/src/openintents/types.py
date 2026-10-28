@@ -96,7 +96,10 @@ class SignInHint(TypedDict, total=False):
 #: app (and upi_url, when present, the same payment as a link to open in a UPI
 #: app on the phone), and answer done=True once they paid (it has no value), or
 #: decline.
-InputKind = Literal["phone", "email", "code", "approval", "detail", "sensitive", "payment"]
+#: A "check" is a captcha or puzzle the shop shows: send the payer to its url,
+#: where they finish it in a live view of the purchase's browser, and answer
+#: done=True once they did (it has no value), or decline.
+InputKind = Literal["phone", "email", "code", "approval", "detail", "sensitive", "payment", "check"]
 
 
 class _InputChoiceRequired(TypedDict):
