@@ -58,6 +58,9 @@ enum Command {
         /// Always wait with a payment link for the payer before paying.
         #[arg(long)]
         payment_link: bool,
+        /// Have the payer check the order before it is placed.
+        #[arg(long)]
+        review: bool,
         /// Wait until it completes, fails or needs payment.
         #[arg(long)]
         wait: bool,
@@ -561,6 +564,7 @@ async fn run(cli: Cli) -> Outcome {
             max,
             context,
             payment_link,
+            review,
             wait,
         } => {
             let mut params = CreateIntent::new(intent);
@@ -573,6 +577,9 @@ async fn run(cli: Cli) -> Outcome {
             }
             if payment_link {
                 params = params.require_payment_link(true);
+            }
+            if review {
+                params = params.review_before_order(true);
             }
             let mut it = oi.create_intent(params).await?;
             if wait {

@@ -2,8 +2,8 @@
 //! each object is one line of JSON; otherwise a few lines a person can read.
 
 use openintents::{
-    Customer, InputKind, Intent, LiveLink, PortalSession, Profile, Secret, SecretRequestCreated, Session,
-    SessionCommandResult, SignIn,
+    Customer, InputKind, Intent, LiveLink, OrderPaymentMethod, OrderReview, PortalSession, Profile, Secret,
+    SecretRequestCreated, Session, SessionCommandResult, SignIn,
 };
 use serde::Serialize;
 
@@ -14,6 +14,46 @@ fn answer_flag(kind: &InputKind) -> &'static str {
         InputKind::Approval | InputKind::Payment | InputKind::Check => "--done",
         _ => "--value <answer>",
     }
+}
+
+/// How `openintents input` answers a question of `kind`, with the other ways.
+fn answer_hint(kind: &InputKind) -> String {
+    match kind {
+        InputKind::Review => "--done to place it (or --value <change>, or --decline)".to_owned(),
+        _ => format!("{} (or --decline)", answer_flag(kind)),
+    }
+}
+
+/// The lines that show an order to review.
+fn review_lines(o: &OrderReview) -> Vec<String> {
+    let mut lines = vec![format!("  order to review at {}:", o.merchant)];
+    for item in &o.items {
+        lines.push(format!(
+            "    {} x {}  {}",
+            item.quantity,
+            item.name,
+            money(item.amount, &o.currency)
+        ));
+    }
+    for fee in &o.fees {
+        lines.push(format!("    {}  {}", fee.label, money(fee.amount, &o.currency)));
+    }
+    lines.push(format!("    total  {}", money(o.total, &o.currency)));
+    if let Some(to) = &o.deliver_to {
+        lines.push(format!("    deliver to: {to}"));
+    }
+    if let Some(eta) = &o.eta {
+        lines.push(format!("    arrives: {eta}"));
+    }
+    let method = match o.payment_method {
+        OrderPaymentMethod::CashOnDelivery => "cash on delivery",
+        OrderPaymentMethod::UpiQr => "UPI QR code",
+        OrderPaymentMethod::Wallet => "wallet",
+        OrderPaymentMethod::PaymentLink => "payment link",
+        OrderPaymentMethod::Unknown => "unknown",
+    };
+    lines.push(format!("    pay by: {method}"));
+    lines
 }
 
 /// The wire name of an enum value (`"in_use"`), for printing.
@@ -61,8 +101,13 @@ pub fn intent(intent: &Intent, json: bool) {
         println!("  sign in here: {}", s.url);
     }
     if let Some(r) = &intent.input_request {
-        let answer = answer_flag(&r.kind);
+        let answer = answer_hint(&r.kind);
         println!("  input needed at {}, ask the payer: {}", r.shop, r.prompt);
+        if let Some(review) = &r.review {
+            for line in review_lines(review) {
+                println!("{line}");
+            }
+        }
         if let Some(image) = &r.image_url {
             println!("  payment code to scan (theirs only): {image}");
         }
@@ -72,16 +117,16 @@ pub fn intent(intent: &Intent, json: bool) {
         if !r.options.is_empty() {
             println!("  options: {}", r.options.join(", "));
         }
-        println!(
-            "  answer: openintents input {} --input {} {answer} (or --decline)",
-            intent.id, r.id
-        );
+        println!("  answer: openintents input {} --input {} {answer}", intent.id, r.id);
         println!("  or the payer answers here (theirs only): {}", r.url);
     }
     if let Some(r) = &intent.result {
         println!("  {}: {} {} (fee {})", r.merchant, r.total, r.currency, r.fee);
         if let (Some(kind), Some(state)) = (&r.kind, &r.state) {
             println!("  {kind} {state}");
+        }
+        if let Some(to) = &r.deliver_to {
+            println!("  delivered to: {to}");
         }
     }
     if let Some(e) = &intent.error {
@@ -243,5 +288,36 @@ mod tests {
             assert_eq!(answer_flag(&kind), "--done");
         }
         assert_eq!(answer_flag(&InputKind::Code), "--value <answer>");
+    }
+
+    #[test]
+    fn a_review_is_answered_done_a_change_or_a_decline() {
+        assert_eq!(
+            answer_hint(&InputKind::Review),
+            "--done to place it (or --value <change>, or --decline)"
+        );
+        assert_eq!(answer_hint(&InputKind::Check), "--done (or --decline)");
+    }
+
+    #[test]
+    fn a_review_shows_items_fees_total_address_and_way_to_pay() {
+        let review: OrderReview = serde_json::from_value(serde_json::json!({
+            "merchant": "blinkit.com", "currency": "inr", "total": 11500,
+            "items": [{ "name": "Protein bar", "quantity": 2, "amount": 10000 }],
+            "fees": [{ "label": "Delivery fee", "amount": 1500 }],
+            "deliver_to": "Home", "eta": null, "payment_method": "upi_qr"
+        }))
+        .unwrap();
+        assert_eq!(
+            review_lines(&review),
+            [
+                "  order to review at blinkit.com:",
+                "    2 x Protein bar  INR 100.00",
+                "    Delivery fee  INR 15.00",
+                "    total  INR 115.00",
+                "    deliver to: Home",
+                "    pay by: UPI QR code",
+            ]
+        );
     }
 }
