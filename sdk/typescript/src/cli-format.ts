@@ -3,6 +3,7 @@ import type {
   Customer,
   Intent,
   LiveLink,
+  OrderReview,
   PortalSession,
   Profile,
   Secret,
@@ -28,20 +29,40 @@ export function describeIntent(intent: Intent): string {
   if (intent.input_request) {
     const r = intent.input_request;
     const done = r.kind === "approval" || r.kind === "payment" || r.kind === "check";
-    const answer = done ? "--done" : "--value <answer>";
+    const answer = r.kind === "review" ? "--done to place it (or --value <change>, or --decline)" : `${done ? "--done" : "--value <answer>"} (or --decline)`;
     lines.push(`  input needed at ${r.shop}, ask the payer: ${r.prompt}`);
+    if (r.review) lines.push(...describeReview(r.review));
     if (r.image_url) lines.push(`  payment code to scan (theirs only): ${r.image_url}`);
     if (r.options?.length) lines.push(`  options: ${r.options.join(", ")}`);
-    lines.push(`  answer: openintents input ${intent.id} --input ${r.id} ${answer} (or --decline)`);
+    lines.push(`  answer: openintents input ${intent.id} --input ${r.id} ${answer}`);
     lines.push(`  or the payer answers here (theirs only): ${r.url}`);
   }
   if (intent.result) {
     const r = intent.result;
     lines.push(`  ${r.merchant}: ${money(r.total, r.currency)} (+${money(r.fee, r.currency)} fee)${r.confirmation ? `, confirmation ${r.confirmation}` : ""}`);
     if (r.kind && r.state) lines.push(`  ${r.kind} ${r.state}`);
+    if (r.deliver_to) lines.push(`  delivered to: ${r.deliver_to}`);
   }
   if (intent.error) lines.push(`  error ${intent.error.code}: ${intent.error.message}`);
   return lines.join("\n");
+}
+
+const PAYMENT_METHODS: Record<string, string> = {
+  cash_on_delivery: "cash on delivery",
+  upi_qr: "UPI QR code",
+  wallet: "wallet",
+  payment_link: "payment link",
+};
+
+function describeReview(o: OrderReview): string[] {
+  const lines = [`  order to review at ${o.merchant}:`];
+  for (const item of o.items) lines.push(`    ${item.quantity} x ${item.name}  ${money(item.amount, o.currency)}`);
+  for (const fee of o.fees) lines.push(`    ${fee.label}  ${money(fee.amount, o.currency)}`);
+  lines.push(`    total  ${money(o.total, o.currency)}`);
+  if (o.deliver_to) lines.push(`    deliver to: ${o.deliver_to}`);
+  if (o.eta) lines.push(`    arrives: ${o.eta}`);
+  lines.push(`    pay by: ${PAYMENT_METHODS[o.payment_method] ?? o.payment_method}`);
+  return lines;
 }
 
 export function describeCustomer(c: Customer): string {

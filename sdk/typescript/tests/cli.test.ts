@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { mkdtemp, readFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -318,6 +319,14 @@ describe("openintents intents", () => {
     expect(r.calls[0]).toMatchObject({ method: "POST", url: "https://api.test/v1/intents", body: { intent: "flat white", max_amount: 1000 } });
     expect(r.code).toBe(2);
     expect(r.out).toContain("https://pay.example/1");
+  });
+
+  it("asks for a review with --review and prints the order to review", async () => {
+    const review = JSON.parse(readFileSync(new URL("../../../spec/examples/intent-requires-review.json", import.meta.url), "utf8"));
+    const r = await cli(["run", "snacks", "--review"], [{ status: 201, body: review }]);
+    expect(r.calls[0]).toMatchObject({ method: "POST", url: "https://api.test/v1/intents", body: { intent: "snacks", review_before_order: true } });
+    expect(r.out).toContain("order to review at blinkit.com:");
+    expect(r.out).toContain("--input inp_review_1 --done to place it (or --value <change>, or --decline)");
   });
 
   it("prints errors as JSON with --json", async () => {

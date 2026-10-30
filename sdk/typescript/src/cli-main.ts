@@ -67,7 +67,7 @@ const INPUT_USAGE = "Usage: openintents input <id> --input <input id> (--value <
 export const helpText = (configFile: string) => `openintents ${VERSION}: the agentic API to buy anything
 
 Usage:
-  openintents run "<intent>" [--max <dollars>] [--context key=value]... [--payment-link] [--wait]
+  openintents run "<intent>" [--max <dollars>] [--context key=value]... [--payment-link] [--review] [--wait]
   openintents status <id> [--wait]
   openintents list [--status <status>] [--limit <n>]
   openintents cancel <id>
@@ -155,6 +155,7 @@ const OPTIONS = {
   max: { type: "string" },
   context: { type: "string", multiple: true },
   "payment-link": { type: "boolean", default: false },
+  review: { type: "boolean", default: false },
   status: { type: "string" },
   limit: { type: "string" },
   cursor: { type: "string" },
@@ -290,6 +291,7 @@ async function dispatch(argv: string[], io: CliIo): Promise<number> {
         max_amount: values.max ? cents("--max", values.max) : undefined,
         context: Object.keys(context).length ? context : undefined,
         require_payment_link: values["payment-link"] || undefined,
+        review_before_order: values.review || undefined,
       });
       if (values.wait) intent = await oi.intents.wait(intent.id);
       print(intent, () => describeIntent(intent));
