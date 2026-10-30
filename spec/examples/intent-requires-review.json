@@ -1,0 +1,55 @@
+{
+  "id": "int_review_1",
+  "object": "intent",
+  "status": "requires_input",
+  "intent": "protein rich sugar free snacks from blinkit",
+  "customer": null,
+  "max_amount": 50000,
+  "currency": "inr",
+  "context": null,
+  "metadata": {},
+  "payment": null,
+  "sign_in": null,
+  "input_request": {
+    "id": "inp_review_1",
+    "kind": "review",
+    "shop": "blinkit.com",
+    "prompt": "Check your blinkit.com order before it is placed.",
+    "options": [],
+    "choices": [],
+    "fields": [],
+    "expects": "text",
+    "channel": null,
+    "length": null,
+    "url": "https://openintents.io/input/inp_review_1",
+    "review": {
+      "merchant": "blinkit.com",
+      "items": [
+        { "name": "Protein bar, sugar free", "quantity": 2, "amount": 10000 },
+        { "name": "Roasted chana", "quantity": 1, "amount": 4500 }
+      ],
+      "fees": [
+        { "label": "Delivery fee", "amount": 2500 },
+        { "label": "Cash on delivery fee", "amount": 1000 }
+      ],
+      "total": 18000,
+      "currency": "inr",
+      "deliver_to": "Home, 12 MG Road, Bengaluru 560001",
+      "eta": "12 minutes",
+      "payment_method": "cash_on_delivery"
+    },
+    "expires_at": "2026-10-30T10:05:00Z",
+    "attempts_left": 2
+  },
+  "webhook_url": null,
+  "secrets": null,
+  "shops": [],
+  "review_before_order": true,
+  "result": null,
+  "error": null,
+  "test": false,
+  "country": "in",
+  "country_source": "payer",
+  "created_at": "2026-10-30T10:00:00Z",
+  "completed_at": null
+}
