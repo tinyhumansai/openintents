@@ -2351,6 +2351,13 @@ components:
           description: |
             How many more times the agent may ask for this `kind` in this
             purchase, after this one.
+      allOf:
+        - if:
+            properties:
+              kind:
+                const: review
+          then:
+            required: [review]
 
     AnswerInputParams:
       type: object
@@ -2489,6 +2496,7 @@ components:
           description: The shop, such as `blinkit.com`.
         items:
           type: array
+          minItems: 1
           items:
             $ref: "#/components/schemas/LineItem"
         fees:
