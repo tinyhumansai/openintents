@@ -165,6 +165,11 @@ CLI exit codes: 0 completed, 1 failed or error, 2 needs payment, 3 cancelled,
   `delete_secret` manage them. To ask the user to enter theirs themselves,
   use the REST API's secret requests (`POST /customers/{id}/secret_requests`)
   and send them the `url`.
+- A platform acting for one of its customers can send
+  `OpenIntents-Customer: cus_...` on every `/mcp` request. The tools then act
+  for that customer alone: `customer` is filled in for you (another one is
+  refused), lists hold only theirs, and anyone else's intent or secret reads
+  as not found.
 - To sign a user in to a shop before any purchase, make a sign-in link
   (`POST /sign_ins` with a `shop_url`) and send them its `url`; the end is a
   `sign_in.completed` or `sign_in.expired` webhook.

@@ -6,6 +6,19 @@ All three SDKs share one version. Format: [Keep a Changelog](https://keepachange
 
 ### Added
 
+- MCP: the optional `OpenIntents-Customer: cus_...` request header on `/mcp`
+  lets a platform act for one of its customers with its own API key. The
+  customer must be the account's (otherwise `403`, the same for an unknown,
+  another account's or an empty value; a non-text value is `400`).
+  `create_intent` and `create_secret` fill in an absent `customer` and refuse
+  another (`invalid_request`, `param: customer`); `list_intents` and
+  `list_secrets` list that customer's alone; the other tools and the MCP task
+  methods answer another customer's intent or secret, or one with no customer,
+  as an unknown id; `tools/list` drops the `customer` argument. The header is
+  read per request, not kept on the MCP session. Without it nothing changes.
+
+### Added
+
 - API: `review_before_order` on create (default `false`): before the order
   is placed, the intent waits in `requires_input` with a `review` question
   whose `review` (`OrderReview`) shows the items, fees, total, where it is
