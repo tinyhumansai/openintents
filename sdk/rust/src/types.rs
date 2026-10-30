@@ -65,6 +65,15 @@ pub struct CreateIntent {
     /// Always wait in `requires_payment` with a payment link (`reason: requested`) before paying.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub require_payment_link: Option<bool>,
+    /// Have the payer check the order before it is placed (default
+    /// `false`): the intent waits in `requires_input` with an
+    /// [`InputKind::Review`] request whose `review` shows the items, fees,
+    /// total, address and way to pay. Answer with [`AnswerInput::done`] to
+    /// place it, [`AnswerInput::decline`] not to order (the intent fails with
+    /// `order_declined`), or the change they want as an
+    /// [`AnswerInput::value`]. Nothing is paid or held before it is done.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub review_before_order: Option<bool>,
     /// When the shop wants the payer signed in and asks for a phone number or
     /// email and then a code: let the agent sign them in itself, asking for
     /// each value in `requires_input` (`true`, the default), or never
@@ -143,6 +152,11 @@ impl CreateIntent {
 
     pub fn require_payment_link(mut self, yes: bool) -> Self {
         self.require_payment_link = Some(yes);
+        self
+    }
+
+    pub fn review_before_order(mut self, yes: bool) -> Self {
+        self.review_before_order = Some(yes);
         self
     }
 
@@ -304,6 +318,12 @@ pub enum InputKind {
     /// view of the purchase's browser, and answer with [`AnswerInput::done`]
     /// once they did (it has no value), or decline.
     Check,
+    /// The order, ready to be placed, for the payer to check
+    /// (`review_before_order`); the request's `review` says what it is. Show
+    /// it to them and answer with [`AnswerInput::done`] only once they
+    /// approve it, [`AnswerInput::decline`] not to order, or their change as
+    /// an [`AnswerInput::value`] (at most 300 characters).
+    Review,
     #[serde(other)]
     Unknown,
 }
@@ -430,6 +450,10 @@ pub struct InputRequest {
     /// when the page gave none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub upi_url: Option<String>,
+    /// A [`InputKind::Review`]'s order, as the agent is about to place it.
+    /// Absent for other kinds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub review: Option<OrderReview>,
     pub expires_at: String,
     /// How many more times the agent may ask for this kind in this purchase,
     /// after this one.
@@ -459,8 +483,8 @@ pub enum AnswerInput {
     },
     /// The payer would rather not: the agent stops signing them in this way.
     Decline { input: String },
-    /// Only for an approval (the payer approved the sign-in) or a payment
-    /// (the payer paid the shop).
+    /// Only for an approval (the payer approved the sign-in), a payment (the
+    /// payer paid the shop) or a review (the payer approved the order).
     Done { input: String },
 }
 
@@ -530,11 +554,62 @@ pub struct PaymentRequest {
     pub expires_at: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReceiptItem {
     pub name: String,
     pub quantity: i64,
+    /// The whole line, in cents.
     pub amount: i64,
+}
+
+/// A charge on top of an order's items, such as a delivery or cash on
+/// delivery fee.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OrderFee {
+    /// The shop's name for it.
+    pub label: String,
+    /// In cents; negative for a discount.
+    pub amount: i64,
+}
+
+/// How a reviewed order will be paid.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OrderPaymentMethod {
+    /// The payer pays when it arrives (`pay_at_shop`).
+    CashOnDelivery,
+    /// The payer pays by the shop's UPI QR code (`pay_at_shop`).
+    UpiQr,
+    /// From the payer's wallet.
+    Wallet,
+    /// By a payment link the payer gets next (`requires_payment`).
+    PaymentLink,
+    #[serde(other)]
+    Unknown,
+}
+
+/// An order as the agent is about to place it, for the payer to check
+/// (`review_before_order`). It says what the shop's page shows; amounts are
+/// in cents of `currency`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OrderReview {
+    pub merchant: String,
+    #[serde(default)]
+    pub items: Vec<ReceiptItem>,
+    /// Charges on top of the items; empty when none.
+    #[serde(default)]
+    pub fees: Vec<OrderFee>,
+    /// What the payer pays, fees included.
+    pub total: i64,
+    pub currency: String,
+    /// Where it is delivered, as the shop's page shows it; `None` when there
+    /// is no address.
+    #[serde(default)]
+    pub deliver_to: Option<String>,
+    /// When it arrives, as the shop's page shows it.
+    #[serde(default)]
+    pub eta: Option<String>,
+    pub payment_method: OrderPaymentMethod,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -564,6 +639,9 @@ pub struct Receipt {
     /// OTP.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub state: Option<String>,
+    /// Where the order is delivered, as the payer approved it in its review.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deliver_to: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -613,6 +691,9 @@ pub struct Intent {
     /// The shops you let the purchase fill secrets on.
     #[serde(default)]
     pub shops: Vec<String>,
+    /// Whether the payer reviews the order before it is placed, as created.
+    #[serde(default)]
+    pub review_before_order: bool,
     /// The country its browser goes out from.
     #[serde(default)]
     pub country: Option<String>,

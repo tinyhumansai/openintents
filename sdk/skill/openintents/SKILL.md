@@ -41,6 +41,9 @@ key (made at https://openintents.io/dashboard/api-keys), sent as
    If the user has given you their phone number or email for signing in to
    the shop, you may pass it as `sign_in_hint` (`{ "phone": ... }` or
    `{ "email": ... }`) so the agent need not ask for it.
+   When the user should see the order before it is placed (groceries, food,
+   anything paid on delivery, or whenever they ask), create it with
+   `review_before_order: true` (CLI: `--review`).
 4. Create it and wait. Over MCP: `create_intent` with an `idempotency_key`
    of your choosing (send the same one if you retry, so it never buys twice),
    then `wait_for_intent`, again while the intent is still queued or running
@@ -122,6 +125,20 @@ key (made at https://openintents.io/dashboard/api-keys), sent as
      `requested`, which means the app is looking for a driver, not that one
      took it. Tell the user to follow the ride, and find its PIN, in the
      ride app.
+
+     When `input_request.kind` is `review` (the intent was created with
+     `review_before_order`), the order is ready to be placed. Show the user
+     `input_request.review`: each item with its quantity and amount, the
+     fees, the total, `deliver_to`, `eta` when present and
+     `payment_method`, and ask whether to place it. Never answer `--done`
+     for them, and never decide for them because the order looks right:
+     only their own yes places it. Then answer `--done` to place it,
+     `--decline` if they don't want it (nothing is ordered and the intent
+     fails with `order_declined`), or `--value "<the change>"` (one line, at
+     most 300 characters) when they want something changed; the agent
+     makes the change and asks a new review, which you show them again. It
+     expires after 5 minutes, and then nothing is ordered. The receipt's
+     `deliver_to` is the address they approved.
    - `requires_login`: the shop wants the user signed in to their account
      there. Give the user `sign_in.url` (theirs only: it works on the first
      device that opens it), tell them it works for 30 minutes, and wait

@@ -669,3 +669,29 @@ async fn status_shows_a_payments_code_to_scan_and_answers_it_with_done() {
     );
     assert!(r.out.contains("--input inp_1 --done"), "{}", r.out);
 }
+
+#[tokio::test]
+async fn run_with_review_asks_for_it_and_status_shows_the_order() {
+    let review = serde_json::from_str::<Value>(
+        &std::fs::read_to_string(
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../../spec/examples/intent-requires-review.json"),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let server = serve("POST", "/intents", 201, review).await;
+    let r = openintents(&server, &["run", "snacks", "--review"], "").await;
+    let (call, body) = sent(&server).await;
+    assert_eq!(call, "POST /intents");
+    assert_eq!(body, Some(json!({ "intent": "snacks", "review_before_order": true })));
+    assert!(r.out.contains("order to review at blinkit.com:"), "{}{}", r.out, r.err);
+    assert!(r.out.contains("    total  INR 180.00"), "{}", r.out);
+    assert!(r.out.contains("    pay by: cash on delivery"), "{}", r.out);
+    assert!(
+        r.out
+            .contains("--input inp_review_1 --done to place it (or --value <change>, or --decline)"),
+        "{}",
+        r.out
+    );
+}

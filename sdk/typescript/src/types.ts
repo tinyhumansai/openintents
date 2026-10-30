@@ -25,6 +25,15 @@ export interface CreateIntentParams {
   /** Always wait in `requires_payment` with a payment link (`reason: requested`) before paying. */
   require_payment_link?: boolean;
   /**
+   * Have the payer check the order before it is placed (default `false`):
+   * the intent waits in `requires_input` with a `review` request whose
+   * `review` shows the items, fees, total, address and way to pay. Answer
+   * `done` to place it, `decline` not to order (the intent fails with
+   * `order_declined`), or the change they want as a `value`. Nothing is paid
+   * or held before `done`. Test keys ask it too.
+   */
+  review_before_order?: boolean;
+  /**
    * When the shop wants the payer signed in and asks for a phone number or
    * email and then a code: let the agent sign them in itself, asking for each
    * value in `requires_input` (`true`, the default), or never (`false`). Takes
@@ -140,7 +149,10 @@ export interface SignInHint {
  * to scan with a UPI app, and answer `done` once they paid (it has no value),
  * or decline. A `check` is a captcha or puzzle the shop shows: send the payer
  * to its `url`, where they finish it in a live view of the purchase's browser,
- * and answer `done` once they did (it has no value), or decline.
+ * and answer `done` once they did (it has no value), or decline. A `review`
+ * (`review_before_order`) shows the order in `review` before it is placed:
+ * show it to the payer and answer `done` only once they approve it, `decline`
+ * not to order, or their change as a `value` (at most 300 characters).
  */
 export type InputKind =
   | "phone"
@@ -150,7 +162,8 @@ export type InputKind =
   | "detail"
   | "sensitive"
   | "payment"
-  | "check";
+  | "check"
+  | "review";
 
 /** One of the choices a question offers, such as a seat, a fare or a delivery slot. */
 export interface InputChoice {
@@ -226,6 +239,8 @@ export interface InputRequest {
    * instead of scanning. Absent for other kinds, and when the page gave none.
    */
   upi_url?: string;
+  /** A `review`'s order, as the agent is about to place it. Absent for other kinds. */
+  review?: OrderReview;
   expires_at: string;
   /** How many more times the agent may ask for this `kind` in this purchase, after this one. */
   attempts_left: number;
@@ -237,7 +252,9 @@ export interface InputRequest {
  * at most 300 characters, one of its `options`, or the `id` of one of its
  * `choices`), `values` (a form's answers by field `name`), `decline` (the
  * payer would rather not) or `done` (only for an `approval`, once they
- * approved it, or a `payment`, once they paid). A `sensitive` question takes only a decline: the payer
+ * approved it, a `payment`, once they paid, or a `review`, once they approved
+ * the order). A `review`'s `value` is the change the payer wants, and its
+ * `decline` means nothing is ordered. A `sensitive` question takes only a decline: the payer
  * answers it on its `url` (anything else is a 422 `answer_on_page`).
  */
 export type AnswerInputParams =
@@ -249,7 +266,39 @@ export type AnswerInputParams =
 export interface ReceiptItem {
   name: string;
   quantity: number;
+  /** The whole line, in cents. */
   amount: number;
+}
+
+/** A charge on top of an order's items, such as a delivery or cash on delivery fee. */
+export interface OrderFee {
+  /** The shop's name for it. */
+  label: string;
+  /** In cents; negative for a discount. */
+  amount: number;
+}
+
+/** How a reviewed order will be paid. Others may appear. */
+export type OrderPaymentMethod = "cash_on_delivery" | "upi_qr" | "wallet" | "payment_link";
+
+/**
+ * An order as the agent is about to place it, for the payer to check
+ * (`review_before_order`). It says what the shop's page shows; amounts are in
+ * cents of `currency`.
+ */
+export interface OrderReview {
+  merchant: string;
+  items: ReceiptItem[];
+  /** Charges on top of the items; empty when none. */
+  fees: OrderFee[];
+  /** What the payer pays, fees included. */
+  total: number;
+  currency: string;
+  /** Where it is delivered, as the shop's page shows it; `null` when there is no address. */
+  deliver_to?: string | null;
+  /** When it arrives, as the shop's page shows it. */
+  eta?: string | null;
+  payment_method: OrderPaymentMethod;
 }
 
 export interface Receipt {
@@ -277,6 +326,8 @@ export interface Receipt {
    * looking for a driver, which none may have taken yet. Never a PIN or OTP.
    */
   state?: "requested";
+  /** Where the order is delivered, as the payer approved it in its `review`. */
+  deliver_to?: string;
 }
 
 export interface IntentError {
@@ -315,6 +366,8 @@ export interface Intent {
   secrets?: string[] | null;
   /** The shops you let the purchase fill secrets on. */
   shops?: string[];
+  /** Whether the payer reviews the order before it is placed, as created. */
+  review_before_order?: boolean;
   /** The country its browser goes out from. */
   country?: string | null;
   country_source?: CountrySource | null;

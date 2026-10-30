@@ -99,7 +99,11 @@ class SignInHint(TypedDict, total=False):
 #: A "check" is a captcha or puzzle the shop shows: send the payer to its url,
 #: where they finish it in a live view of the purchase's browser, and answer
 #: done=True once they did (it has no value), or decline.
-InputKind = Literal["phone", "email", "code", "approval", "detail", "sensitive", "payment", "check"]
+#: A "review" (review_before_order) shows the order in review before it is
+#: placed: show it to the payer and answer done=True only once they approve
+#: it, decline=True not to order, or their change as value= (at most 300
+#: characters).
+InputKind = Literal["phone", "email", "code", "approval", "detail", "sensitive", "payment", "check", "review"]
 
 
 class _InputChoiceRequired(TypedDict):
@@ -175,6 +179,8 @@ class InputRequest(TypedDict, total=False):
     #: code, when the shop's page gave one: open it in a UPI app on the phone
     #: instead of scanning. Absent for other kinds, and when the page gave none.
     upi_url: str
+    #: A "review"'s order, as the agent is about to place it. Absent for other kinds.
+    review: OrderReview
     expires_at: str
     #: How many more times the agent may ask for this kind in this purchase, after this one.
     attempts_left: int
@@ -183,7 +189,41 @@ class InputRequest(TypedDict, total=False):
 class ReceiptItem(TypedDict):
     name: str
     quantity: int
+    #: The whole line, in cents.
     amount: int
+
+
+class OrderFee(TypedDict):
+    """A charge on top of an order's items, such as a delivery or cash on delivery fee."""
+
+    #: The shop's name for it.
+    label: str
+    #: In cents; negative for a discount.
+    amount: int
+
+
+#: How a reviewed order will be paid. Others may appear.
+OrderPaymentMethod = Literal["cash_on_delivery", "upi_qr", "wallet", "payment_link"]
+
+
+class OrderReview(TypedDict, total=False):
+    """An order as the agent is about to place it, for the payer to check (review_before_order).
+
+    It says what the shop's page shows; amounts are in cents of currency.
+    """
+
+    merchant: str
+    items: list[ReceiptItem]
+    #: Charges on top of the items; empty when none.
+    fees: list[OrderFee]
+    #: What the payer pays, fees included.
+    total: int
+    currency: str
+    #: Where it is delivered, as the shop's page shows it; None when there is no address.
+    deliver_to: str | None
+    #: When it arrives, as the shop's page shows it.
+    eta: str | None
+    payment_method: OrderPaymentMethod
 
 
 class Receipt(TypedDict, total=False):
@@ -205,6 +245,8 @@ class Receipt(TypedDict, total=False):
     #: How far it got, where kind says: a "ride" is "requested", the app looking
     #: for a driver, which none may have taken yet. Never a PIN or OTP.
     state: Literal["requested"]
+    #: Where the order is delivered, as the payer approved it in its review.
+    deliver_to: str
 
 
 class IntentError(TypedDict):
@@ -236,6 +278,8 @@ class Intent(TypedDict, total=False):
     secrets: list[str] | None
     #: The shops you let the purchase fill secrets on.
     shops: list[str]
+    #: Whether the payer reviews the order before it is placed, as created.
+    review_before_order: bool
     #: The country its browser goes out from.
     country: str | None
     country_source: CountrySource | None

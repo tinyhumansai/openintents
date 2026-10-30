@@ -231,6 +231,7 @@ def _create_body(
     secrets: Sequence[str] | None = None,
     shops: Sequence[str] | None = None,
     pay_at_shop: bool | None = None,
+    review_before_order: bool | None = None,
 ) -> dict[str, Any]:
     body: dict[str, Any] = {"intent": intent}
     for k, v in (
@@ -243,6 +244,7 @@ def _create_body(
         ("sign_in_link", sign_in_link),
         ("sign_in_agent", sign_in_agent),
         ("pay_at_shop", pay_at_shop),
+        ("review_before_order", review_before_order),
         ("sign_in_hint", dict(sign_in_hint) if sign_in_hint is not None else None),
         ("country", country),
         ("end_user_ip", end_user_ip),
@@ -451,6 +453,7 @@ class Intents:
         sign_in_agent: bool | None = None,
         sign_in_hint: SignInHint | None = None,
         pay_at_shop: bool | None = None,
+        review_before_order: bool | None = None,
         country: str | None = None,
         end_user_ip: str | None = None,
         webhook_url: str | None = None,
@@ -470,6 +473,11 @@ class Intents:
         the payer pay the shop themselves: the intent waits in
         "requires_input" with a "payment" request showing the shop's payment
         code (image_url); answer done=True once they paid. Live keys only.
+        review_before_order=True has the payer check the order before it is
+        placed: the intent waits in "requires_input" with a "review" request
+        (its review shows the items, fees, total, address and way to pay);
+        answer done=True to place it, decline=True not to order, or the change
+        they want as value=.
         """
         body = _create_body(
             intent,
@@ -489,6 +497,7 @@ class Intents:
             secrets,
             shops,
             pay_at_shop,
+            review_before_order,
         )
         return self._c._request(
             "POST", "/intents", json=body, idempotency_key=idempotency_key or str(uuid.uuid4()), wait=wait
@@ -1024,6 +1033,7 @@ class AsyncIntents:
         sign_in_agent: bool | None = None,
         sign_in_hint: SignInHint | None = None,
         pay_at_shop: bool | None = None,
+        review_before_order: bool | None = None,
         country: str | None = None,
         end_user_ip: str | None = None,
         webhook_url: str | None = None,
@@ -1051,6 +1061,7 @@ class AsyncIntents:
             secrets,
             shops,
             pay_at_shop,
+            review_before_order,
         )
         return await self._c._request(
             "POST", "/intents", json=body, idempotency_key=idempotency_key or str(uuid.uuid4()), wait=wait

@@ -129,6 +129,15 @@ to the driver in cash: its receipt says `kind: "ride"` and `state:
 in the ride app). A cancel after the order was placed at the shop still
 stops, but answers `error.code` `may_be_placed`: check with the shop.
 
+With `review_before_order: true` on create, the payer checks the order
+before it is placed: a `review` question carries `input_request.review` (the
+items, fees, total, `deliver_to`, `eta` and `payment_method`). Show it to the
+payer and answer `{ input, done: true }` only once they approve it, `{ input,
+decline: true }` not to order (the intent fails with `order_declined`), or
+`{ input, value: "<the change>" }` to have the agent change the order and ask
+again. The receipt's `deliver_to` is the address they approved. The CLI's
+`run --review` asks for it, and `status` prints the order.
+
 ### Secrets, sign-ins and live links
 
 ```ts

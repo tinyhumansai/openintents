@@ -6,6 +6,24 @@ All three SDKs share one version. Format: [Keep a Changelog](https://keepachange
 
 ### Added
 
+- API: `review_before_order` on create (default `false`): before the order
+  is placed, the intent waits in `requires_input` with a `review` question
+  whose `review` (`OrderReview`) shows the items, fees, total, where it is
+  delivered (`deliver_to`), when it arrives (`eta`) and how it is paid
+  (`payment_method`: `cash_on_delivery`, `upi_qr`, `wallet` or
+  `payment_link`). Answer `done` to place it, `decline` not to order (the
+  intent fails with the new code `order_declined`, and nothing is ordered),
+  or the change the payer wants as a `value`, after which the agent asks a
+  new review. Nothing is paid or held before `done`; test keys ask it too.
+  The intent echoes `review_before_order`, and the receipt's `deliver_to`
+  is the address the payer approved.
+- SDKs: `review` in `InputKind`, `OrderReview`, `OrderFee` and
+  `OrderPaymentMethod`, `review_before_order` on create and on `Intent`, and
+  `deliver_to` on `Receipt` (TypeScript, Python, Rust); both CLIs' `run
+  --review` asks for it and `status` prints the order and how to answer it.
+- Spec: wire examples of a review, a reviewed receipt and a declined review
+  in `spec/examples`, which every SDK's tests parse.
+
 - API: a `check` question: the shop shows a captcha, a puzzle or "verify
   your device", and the payer finishes it on the question's `url`, in a live
   view of the purchase's browser, then answers `done`; the purchase carries
