@@ -181,7 +181,9 @@ paths:
         `requires_input`: the phone number, email, code or answer to a
         `detail` in `value`, `decline` when the payer would rather not (the
         agent stops asking, see `InputRequest`), or `done` once they
-        approved an `approval` or paid a `payment`. A question with `choices` is answered with
+        approved an `approval` or paid a `payment`. A `review` is answered
+        `done` to place the order as shown, `decline` not to order, or with
+        the change the payer wants in `value`. A question with `choices` is answered with
         the `id` of one in `value`, and one with `fields` with `values`, an
         object of the answers by field `name`. Send exactly one of
         `value`, `values`, `decline` and `done`, with the request's `id` as
@@ -1879,6 +1881,19 @@ components:
             Always wait in `requires_payment` with a payment link for the
             payer (`reason: requested`) before paying, even when their wallet
             could pay at once.
+        review_before_order:
+          type: boolean
+          default: false
+          description: |
+            `true`: before the order is placed, the intent waits in
+            `requires_input` with a `review` request: what the agent is about
+            to order (`InputRequest.review`: items, fees, total, where it is
+            delivered and how it is paid). The payer answers `done` to place
+            it, `decline` not to order (the intent fails with
+            `order_declined`, and nothing is ordered), or with the change
+            they want in `value` (the agent makes it and asks again). Nothing
+            is paid or held before the payer approves. Test keys ask it too,
+            then stop at the payment step as always.
         sign_in_agent:
           type: boolean
           default: true
@@ -2059,6 +2074,9 @@ components:
           items:
             type: string
           description: The shops you let the purchase fill secrets on.
+        review_before_order:
+          type: boolean
+          description: Whether the payer reviews the order before it is placed, as created.
         result:
           description: Set once `completed`.
           oneOf:
@@ -2181,6 +2199,9 @@ components:
         A `detail` can offer `choices` (each with an `id`, answered by that
         id) or ask a form of `fields` (answered with `values`); `expects`
         says what a plain answer must look like.
+
+        A `review` (with `review_before_order`) shows the payer the order
+        before it is placed, in `review`.
       required: [id, kind, shop, prompt, options, choices, fields, expects, channel, length, url, expires_at, attempts_left]
       properties:
         id:
@@ -2227,7 +2248,20 @@ components:
             carries on past it in the same browser. Answer `done` once they
             finished it, or `decline`; it takes no value. Unfinished, the
             intent fails with `merchant_unavailable`.
-          enum: [phone, email, code, approval, detail, sensitive, payment, check]
+
+            `review`: the order is ready to be placed and the intent was
+            created with `review_before_order`. `review` says what it is:
+            the items, fees, total, where it is delivered and how it is
+            paid. Show it to the payer and let them decide; never answer
+            `done` for them. Answer `done` to place the order as shown,
+            `decline` not to order (the intent fails with `order_declined`
+            and nothing is ordered), or with the change they want in `value`
+            (a line of at most 300 characters, such as "remove the chips"):
+            the agent makes it and asks a new `review`. Nothing is paid or
+            held before `done`. It expires after 5 minutes: unanswered, the
+            intent fails with `input_expired` and nothing is ordered. An
+            intent asks at most 3.
+          enum: [phone, email, code, approval, detail, sensitive, payment, check, review]
         shop:
           type: string
           description: The shop's registrable domain, such as `blinkit.com`.
@@ -2302,6 +2336,9 @@ components:
             payment as the code, when the shop's page gave one: open it in a
             UPI app on the phone instead of scanning. Its amount is the one
             asked. Absent for the other kinds, and when the page gave none.
+        review:
+          description: A `review`'s order, as the agent is about to place it. Absent for the other kinds.
+          $ref: "#/components/schemas/OrderReview"
         expires_at:
           type: string
           format: date-time
@@ -2331,13 +2368,14 @@ components:
         value:
           type: string
           description: |
-            The answer, for `phone`, `email`, `code` and `detail`. A phone
+            The answer, for `phone`, `email`, `code`, `detail` and `review`. A phone
             number is digits, with an optional leading `+`; spaces, dashes,
             dots and parentheses are fine. A code is 3 to 12 letters, digits
             or dashes. A `detail`'s answer is a line of at most 300
             characters or, depending on the question, an email address or a
             phone number; with `options`, one of them (case-insensitive); with
-            `choices`, the `id` of one.
+            `choices`, the `id` of one. A `review`'s is the change the payer
+            wants, a line of at most 300 characters.
         values:
           type: object
           additionalProperties:
@@ -2349,13 +2387,17 @@ components:
         decline:
           type: boolean
           const: true
-          description: The payer would rather not. The agent stops signing them in this way.
+          description: |
+            The payer would rather not. The agent stops signing them in this
+            way; for a `review`, nothing is ordered and the intent fails with
+            `order_declined`.
         done:
           type: boolean
           const: true
           description: |
-            Only for an `approval`, once the payer approved the sign-in, or a
-            `payment`, once they paid the shop.
+            Only for an `approval`, once the payer approved the sign-in, a
+            `payment`, once they paid the shop, or a `review`, once they
+            approved the order as shown.
 
     Receipt:
       type: object
@@ -2366,15 +2408,7 @@ components:
         items:
           type: array
           items:
-            type: object
-            required: [name, quantity, amount]
-            properties:
-              name:
-                type: string
-              quantity:
-                type: integer
-              amount:
-                type: integer
+            $ref: "#/components/schemas/LineItem"
         total:
           type: integer
         fee:
@@ -2412,6 +2446,75 @@ components:
             app looking for a driver, which none may have taken yet. Follow
             the ride, and find its PIN, in the ride app: a receipt never
             carries a PIN or OTP. Others may appear.
+        deliver_to:
+          type: string
+          description: |
+            Where the order is delivered, as the payer approved it in the
+            `review` (`review_before_order`). Absent when there was no
+            review or no address.
+
+    LineItem:
+      type: object
+      required: [name, quantity, amount]
+      properties:
+        name:
+          type: string
+        quantity:
+          type: integer
+        amount:
+          type: integer
+          description: The whole line, in cents.
+
+    OrderFee:
+      type: object
+      required: [label, amount]
+      properties:
+        label:
+          type: string
+          description: The shop's name for it, such as `Delivery fee` or `Cash on delivery fee`.
+        amount:
+          type: integer
+          description: In cents; negative for a discount.
+
+    OrderReview:
+      type: object
+      description: |
+        An order as the agent is about to place it, for the payer to check
+        (`review_before_order`). It says what the shop's page shows. All
+        amounts are in cents of `currency`.
+      required: [merchant, items, fees, total, currency, payment_method]
+      properties:
+        merchant:
+          type: string
+          description: The shop, such as `blinkit.com`.
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/LineItem"
+        fees:
+          type: array
+          description: Charges on top of the items (delivery, handling, cash on delivery); empty when none.
+          items:
+            $ref: "#/components/schemas/OrderFee"
+        total:
+          type: integer
+          description: What the payer pays, fees included.
+        currency:
+          type: string
+        deliver_to:
+          type: [string, "null"]
+          description: Where it is delivered, as the shop's page shows it; `null` when there is no address, such as a ride.
+        eta:
+          type: [string, "null"]
+          description: When it arrives, as the shop's page shows it, when it does.
+        payment_method:
+          type: string
+          enum: [cash_on_delivery, upi_qr, wallet, payment_link]
+          description: |
+            How it will be paid: `cash_on_delivery` or `upi_qr`, by the payer
+            themselves (`pay_at_shop`); `wallet`, from the payer's wallet; or
+            `payment_link`, by a payment link the payer gets next
+            (`requires_payment`). Others may appear.
 
     IntentError:
       type: object
@@ -2423,9 +2526,10 @@ components:
             Why the intent did not finish. On a `failed` intent, such as
             `over_max_amount` or `out_of_stock`; `needs_review` when its
             payment step began but its outcome is unknown, so the order may
-            have gone through. On a `cancelled` one, `may_be_placed`: it was
+            have gone through; `order_declined` when the payer chose not to
+            order at its `review`, so nothing was ordered. On a `cancelled` one, `may_be_placed`: it was
             cancelled after its order was placed at the shop.
-          examples: [over_max_amount, out_of_stock, merchant_unavailable, login_required, needs_information, input_expired, limit_exceeded, needs_review, may_be_placed]
+          examples: [over_max_amount, out_of_stock, merchant_unavailable, login_required, needs_information, input_expired, limit_exceeded, needs_review, order_declined, may_be_placed]
         message:
           type: string
 
