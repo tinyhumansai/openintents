@@ -2,8 +2,8 @@
 //! each object is one line of JSON; otherwise a few lines a person can read.
 
 use openintents::{
-    Customer, InputKind, Intent, LiveLink, OrderPaymentMethod, OrderReview, PortalSession, Profile, Secret,
-    SecretRequestCreated, Session, SessionCommandResult, SignIn,
+    Customer, InputKind, InputRequest, Intent, LiveLink, OrderPaymentMethod, OrderReview, PortalSession, Profile,
+    Secret, SecretRequestCreated, Session, SessionCommandResult, SignIn,
 };
 use serde::Serialize;
 
@@ -16,11 +16,18 @@ fn answer_flag(kind: &InputKind) -> &'static str {
     }
 }
 
-/// How `openintents input` answers a question of `kind`, with the other ways.
-fn answer_hint(kind: &InputKind) -> String {
-    match kind {
-        InputKind::Review => "--done to place it (or --value <change>, or --decline)".to_owned(),
-        _ => format!("{} (or --decline)", answer_flag(kind)),
+/// The order a review shows, when it has one to approve.
+fn shown_review(r: &InputRequest) -> Option<&OrderReview> {
+    r.review.as_ref().filter(|o| !o.items.is_empty())
+}
+
+/// How `openintents input` answers a question, with the other ways. A review
+/// whose order is missing can only be declined.
+fn answer_hint(r: &InputRequest) -> String {
+    match (&r.kind, shown_review(r)) {
+        (InputKind::Review, Some(_)) => "--done to place it (or --value <change>, or --decline)".to_owned(),
+        (InputKind::Review, None) => "--decline (the order to review is missing, so it cannot be approved)".to_owned(),
+        (kind, _) => format!("{} (or --decline)", answer_flag(kind)),
     }
 }
 
@@ -101,9 +108,9 @@ pub fn intent(intent: &Intent, json: bool) {
         println!("  sign in here: {}", s.url);
     }
     if let Some(r) = &intent.input_request {
-        let answer = answer_hint(&r.kind);
+        let answer = answer_hint(r);
         println!("  input needed at {}, ask the payer: {}", r.shop, r.prompt);
-        if let Some(review) = &r.review {
+        if let Some(review) = shown_review(r) {
             for line in review_lines(review) {
                 println!("{line}");
             }
@@ -290,13 +297,40 @@ mod tests {
         assert_eq!(answer_flag(&InputKind::Code), "--value <answer>");
     }
 
+    fn request(kind: &str, review: serde_json::Value) -> InputRequest {
+        serde_json::from_value(serde_json::json!({
+            "id": "inp_1", "kind": kind, "shop": "blinkit.com", "prompt": "p",
+            "url": "https://x/input/inp_1", "expires_at": "t", "attempts_left": 1, "review": review
+        }))
+        .unwrap()
+    }
+
     #[test]
     fn a_review_is_answered_done_a_change_or_a_decline() {
+        let order = serde_json::json!({
+            "merchant": "blinkit.com", "currency": "inr", "total": 100,
+            "items": [{ "name": "Bar", "quantity": 1, "amount": 100 }], "fees": [],
+            "payment_method": "cash_on_delivery"
+        });
         assert_eq!(
-            answer_hint(&InputKind::Review),
+            answer_hint(&request("review", order)),
             "--done to place it (or --value <change>, or --decline)"
         );
-        assert_eq!(answer_hint(&InputKind::Check), "--done (or --decline)");
+        assert_eq!(
+            answer_hint(&request("check", serde_json::Value::Null)),
+            "--done (or --decline)"
+        );
+    }
+
+    #[test]
+    fn a_review_without_its_order_can_only_be_declined() {
+        let declined = "--decline (the order to review is missing, so it cannot be approved)";
+        assert_eq!(answer_hint(&request("review", serde_json::Value::Null)), declined);
+        let empty = serde_json::json!({
+            "merchant": "blinkit.com", "currency": "inr", "total": 100,
+            "payment_method": "cash_on_delivery"
+        });
+        assert_eq!(answer_hint(&request("review", empty)), declined);
     }
 
     #[test]

@@ -82,6 +82,16 @@ describe("order review", () => {
     expect(out).toContain("--input inp_review_1 --done to place it (or --value <change>, or --decline)");
   });
 
+  it("offers only a decline for a review whose order is missing", () => {
+    const base = example("intent-requires-review.json");
+    for (const review of [undefined, { ...base.input_request!.review!, items: [] }]) {
+      const out = describeIntent({ ...base, input_request: { ...base.input_request!, review } });
+      expect(out).toContain("--input inp_review_1 --decline (the order to review is missing, so it cannot be approved)");
+      expect(out).not.toContain("--done");
+      expect(out).not.toContain("order to review at");
+    }
+  });
+
   it("prints the receipt's delivery address", () => {
     expect(describeIntent(example("intent-completed-reviewed.json"))).toContain("delivered to: Home, 12 MG Road, Bengaluru 560001");
   });

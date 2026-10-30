@@ -29,9 +29,15 @@ export function describeIntent(intent: Intent): string {
   if (intent.input_request) {
     const r = intent.input_request;
     const done = r.kind === "approval" || r.kind === "payment" || r.kind === "check";
-    const answer = r.kind === "review" ? "--done to place it (or --value <change>, or --decline)" : `${done ? "--done" : "--value <answer>"} (or --decline)`;
+    const shown = r.kind === "review" && !!r.review?.items?.length;
+    const answer =
+      r.kind !== "review"
+        ? `${done ? "--done" : "--value <answer>"} (or --decline)`
+        : shown
+          ? "--done to place it (or --value <change>, or --decline)"
+          : "--decline (the order to review is missing, so it cannot be approved)";
     lines.push(`  input needed at ${r.shop}, ask the payer: ${r.prompt}`);
-    if (r.review) lines.push(...describeReview(r.review));
+    if (shown) lines.push(...describeReview(r.review!));
     if (r.image_url) lines.push(`  payment code to scan (theirs only): ${r.image_url}`);
     if (r.options?.length) lines.push(`  options: ${r.options.join(", ")}`);
     lines.push(`  answer: openintents input ${intent.id} --input ${r.id} ${answer}`);
