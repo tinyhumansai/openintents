@@ -223,6 +223,9 @@ class OrderReview(TypedDict, total=False):
     deliver_to: str | None
     #: When it arrives, as the shop's page shows it.
     eta: str | None
+    #: Set when OpenIntents may earn an affiliate commission on this order:
+    #: show it with the order.
+    affiliate: Affiliate | None
     payment_method: OrderPaymentMethod
 
 
@@ -257,6 +260,17 @@ class IntentError(TypedDict):
     message: str
 
 
+class Affiliate(TypedDict):
+    """A store's affiliate program that may pay OpenIntents a commission on a purchase."""
+
+    #: The program's id.
+    program: str
+    #: The store, as a person reads it.
+    name: str
+    #: The affiliate network that pays the commission.
+    network: str
+
+
 class Intent(TypedDict, total=False):
     id: str
     object: Literal["intent"]
@@ -285,6 +299,9 @@ class Intent(TypedDict, total=False):
     country_source: CountrySource | None
     result: Receipt | None
     error: IntentError | None
+    #: Set when a live purchase is at a store whose affiliate program may pay
+    #: OpenIntents a commission on it, before anything is ordered.
+    affiliate: Affiliate | None
     test: bool
     created_at: str
     completed_at: str | None

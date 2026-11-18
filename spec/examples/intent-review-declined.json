@@ -17,6 +17,7 @@
   "review_before_order": true,
   "result": null,
   "error": { "code": "order_declined", "message": "The payer chose not to place the order at review; nothing was ordered." },
+  "affiliate": null,
   "test": false,
   "country": "in",
   "country_source": "payer",
