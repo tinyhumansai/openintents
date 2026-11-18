@@ -47,6 +47,7 @@
   "review_before_order": true,
   "result": null,
   "error": null,
+  "affiliate": null,
   "test": false,
   "country": "in",
   "country_source": "payer",
