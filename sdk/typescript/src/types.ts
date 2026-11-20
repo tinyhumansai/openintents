@@ -298,8 +298,6 @@ export interface OrderReview {
   deliver_to?: string | null;
   /** When it arrives, as the shop's page shows it. */
   eta?: string | null;
-  /** Set when OpenIntents may earn an affiliate commission on this order: show it with the order. */
-  affiliate?: Affiliate | null;
   payment_method: OrderPaymentMethod;
 }
 
@@ -330,16 +328,6 @@ export interface Receipt {
   state?: "requested";
   /** Where the order is delivered, as the payer approved it in its `review`. */
   deliver_to?: string;
-}
-
-/** A store's affiliate program that may pay OpenIntents a commission on a purchase. */
-export interface Affiliate {
-  /** The program's id. */
-  program: string;
-  /** The store, as a person reads it. */
-  name: string;
-  /** The affiliate network that pays the commission. */
-  network: string;
 }
 
 export interface IntentError {
@@ -387,11 +375,6 @@ export interface Intent {
   result?: Receipt | null;
   /** Set when `status` is `failed`. */
   error?: IntentError | null;
-  /**
-   * Set when a live purchase is at a store whose affiliate program may pay OpenIntents a
-   * commission on it, before anything is ordered: tell your customer before they place it.
-   */
-  affiliate?: Affiliate | null;
   test: boolean;
   created_at: string;
   completed_at?: string | null;
