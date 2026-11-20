@@ -53,7 +53,6 @@ fn the_review() -> OrderReview {
         currency: "inr".into(),
         deliver_to: Some("Home, 12 MG Road, Bengaluru 560001".into()),
         eta: Some("12 minutes".into()),
-        affiliate: None,
         payment_method: OrderPaymentMethod::CashOnDelivery,
     }
 }

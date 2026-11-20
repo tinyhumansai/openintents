@@ -36,12 +36,6 @@ All three SDKs share one version. Format: [Keep a Changelog](https://keepachange
   --review` asks for it and `status` prints the order and how to answer it.
 - Spec: wire examples of a review, a reviewed receipt and a declined review
   in `spec/examples`, which every SDK's tests parse.
-- API: an intent's `affiliate` (`program`, `name`, `network`), set when a
-  live purchase is at a store whose affiliate program may pay OpenIntents a
-  commission on it, before anything is ordered, and the same on a review's
-  `OrderReview`. The store's price is the same either way, and no store is
-  chosen for it.
-- SDKs: `Affiliate`, with `Intent.affiliate` and `OrderReview.affiliate` (TypeScript, Python, Rust).
 
 - API: a `check` question: the shop shows a captcha, a puzzle or "verify
   your device", and the payer finishes it on the question's `url`, in a live

@@ -609,10 +609,6 @@ pub struct OrderReview {
     /// When it arrives, as the shop's page shows it.
     #[serde(default)]
     pub eta: Option<String>,
-    /// Set when OpenIntents may earn an affiliate commission on this order:
-    /// show it with the order.
-    #[serde(default)]
-    pub affiliate: Option<Affiliate>,
     pub payment_method: OrderPaymentMethod,
 }
 
@@ -646,18 +642,6 @@ pub struct Receipt {
     /// Where the order is delivered, as the payer approved it in its review.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub deliver_to: Option<String>,
-}
-
-/// A store's affiliate program that may pay OpenIntents a commission on a
-/// purchase.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Affiliate {
-    /// The program's id.
-    pub program: String,
-    /// The store, as a person reads it.
-    pub name: String,
-    /// The affiliate network that pays the commission.
-    pub network: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -721,11 +705,6 @@ pub struct Intent {
     /// Set when `status` is `failed`.
     #[serde(default)]
     pub error: Option<IntentError>,
-    /// Set when a live purchase is at a store whose affiliate program may pay
-    /// OpenIntents a commission on it, before anything is ordered: tell your
-    /// customer before they place it.
-    #[serde(default)]
-    pub affiliate: Option<Affiliate>,
     #[serde(default)]
     pub test: bool,
     pub created_at: String,

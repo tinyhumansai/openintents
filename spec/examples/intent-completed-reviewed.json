@@ -30,7 +30,6 @@
     "deliver_to": "Home, 12 MG Road, Bengaluru 560001"
   },
   "error": null,
-  "affiliate": null,
   "test": false,
   "country": "in",
   "country_source": "payer",

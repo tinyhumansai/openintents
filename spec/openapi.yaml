@@ -2090,17 +2090,6 @@ components:
           oneOf:
             - $ref: "#/components/schemas/IntentError"
             - type: "null"
-        affiliate:
-          description: |
-            Set when a live purchase is at a store whose affiliate program may
-            pay OpenIntents a commission on it, from the moment the purchase
-            reaches the store and before anything is ordered. The store's
-            price is the same either way, and no store is chosen for it. Show
-            your customer that OpenIntents may earn a commission before they
-            place the order. Never set on a test intent.
-          oneOf:
-            - $ref: "#/components/schemas/Affiliate"
-            - type: "null"
         test:
           type: boolean
         country:
@@ -2526,14 +2515,6 @@ components:
         eta:
           type: [string, "null"]
           description: When it arrives, as the shop's page shows it, when it does.
-        affiliate:
-          description: |
-            Set when OpenIntents may earn an affiliate commission from the
-            store's program on this order. Show it to the payer with the
-            order, before they place it.
-          oneOf:
-            - $ref: "#/components/schemas/Affiliate"
-            - type: "null"
         payment_method:
           type: string
           enum: [cash_on_delivery, upi_qr, wallet, payment_link]
@@ -2559,21 +2540,6 @@ components:
           examples: [over_max_amount, out_of_stock, merchant_unavailable, login_required, needs_information, input_expired, limit_exceeded, needs_review, order_declined, may_be_placed]
         message:
           type: string
-
-    Affiliate:
-      type: object
-      description: A store's affiliate program that may pay OpenIntents a commission on a purchase.
-      required: [program, name, network]
-      properties:
-        program:
-          type: string
-          description: The program's id.
-        name:
-          type: string
-          description: The store, as a person reads it.
-        network:
-          type: string
-          description: The affiliate network that pays the commission.
 
     IntentList:
       type: object
